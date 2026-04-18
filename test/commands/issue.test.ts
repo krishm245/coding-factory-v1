@@ -4,6 +4,21 @@ import {
   createIssueCommandSummary,
   parseIssueNumber,
 } from "../../src/commands/issue.js";
+import {
+  type RepositoryContext,
+  RepositoryValidationError,
+} from "../../src/git/repository.js";
+
+const repositoryContext: RepositoryContext = {
+  root: "/repo",
+  currentBranch: "main",
+  remoteUrl: "git@github.com:owner/repo.git",
+  github: {
+    owner: "owner",
+    repo: "repo",
+  },
+  isClean: true,
+};
 
 describe("createProgram", () => {
   it("registers the CLI name and issue command", () => {
@@ -34,7 +49,9 @@ describe("parseIssueNumber", () => {
 describe("issue command", () => {
   it("parses issue command options", async () => {
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const program = createProgram();
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+    });
 
     await program.parseAsync(
       [
@@ -61,6 +78,7 @@ describe("issue command", () => {
           model: "ai/test-model",
           testScript: "test:all",
           dryRun: true,
+          repository: repositoryContext,
         },
         null,
         2,
@@ -71,11 +89,12 @@ describe("issue command", () => {
   });
 
   it("creates a normalized command summary", () => {
-    expect(createIssueCommandSummary(123, {})).toEqual({
+    expect(createIssueCommandSummary(123, {}, repositoryContext)).toEqual({
       issueNumber: 123,
       model: undefined,
       testScript: undefined,
       dryRun: false,
+      repository: repositoryContext,
     });
   });
 
@@ -100,6 +119,36 @@ describe("issue command", () => {
       }),
     ).rejects.toMatchObject({
       code: "commander.invalidArgument",
+    });
+  });
+
+  it("fails when repository validation fails", async () => {
+    const program = createProgram({
+      loadRepositoryContext: () => {
+        throw new RepositoryValidationError("Current directory is not inside a git repository.");
+      },
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(["node", "coding-factory", "issue", "123"], {
+        from: "node",
+      }),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message:
+        "Repository validation failed: Current directory is not inside a git repository.",
     });
   });
 });

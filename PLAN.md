@@ -21,9 +21,9 @@ References:
 ## TODO
 
 - [x] Scaffold the TypeScript CLI project with package metadata, build scripts, linting, and a `coding-factory` executable.
-- [ ] Add the `coding-factory issue <issue-number>` command with `--model`, `--test-script`, and `--dry-run` options.
-- [ ] Implement configuration loading from an optional config file, environment variables, and CLI flags with clear precedence.
-- [ ] Add git repo validation, current branch detection, clean-working-tree checks, and GitHub remote parsing.
+- [x] Add the `coding-factory issue <issue-number>` command with `--model`, `--test-script`, and `--dry-run` options.
+- [skip] Implement configuration loading from an optional config file, environment variables, and CLI flags with clear precedence.
+- [x] Add git repo validation, current branch detection, clean-working-tree checks, and GitHub remote parsing.
 - [ ] Integrate Docker MCP GitHub issue fetching for issue title, body, comments, labels, and repository metadata.
 - [ ] Generate `requirements/issue-<number>.md` from GitHub issue data using the local LLM.
 - [ ] Create and checkout `coding-factory/issue-<number>` branches from the current base branch.
