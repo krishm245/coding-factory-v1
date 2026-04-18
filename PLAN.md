@@ -18,6 +18,32 @@ References:
 - Docker Model Runner overview: https://docs.docker.com/ai/model-runner/
 - Docker MCP Toolkit: https://docs.docker.com/ai/mcp-catalog-and-toolkit/
 
+## TODO
+
+- [x] Scaffold the TypeScript CLI project with package metadata, build scripts, linting, and a `coding-factory` executable.
+- [ ] Add the `coding-factory issue <issue-number>` command with `--model`, `--test-script`, and `--dry-run` options.
+- [ ] Implement configuration loading from an optional config file, environment variables, and CLI flags with clear precedence.
+- [ ] Add git repo validation, current branch detection, clean-working-tree checks, and GitHub remote parsing.
+- [ ] Integrate Docker MCP GitHub issue fetching for issue title, body, comments, labels, and repository metadata.
+- [ ] Generate `requirements/issue-<number>.md` from GitHub issue data using the local LLM.
+- [ ] Create and checkout `coding-factory/issue-<number>` branches from the current base branch.
+- [ ] Build the isolated Docker worker image used to operate on the mounted target repo.
+- [ ] Start the worker container with the repo mounted at `/workspace` and no broad host filesystem access.
+- [ ] Add a Docker Model Runner client using the OpenAI-compatible endpoint.
+- [ ] Implement the worker-side repo inspection and implementation loop driven by the generated requirement document.
+- [ ] Add package manager detection and dependency installation inside the worker container.
+- [ ] Implement full-suite test script selection with `--test-script`, `test:all`, then `test` fallback.
+- [ ] Gate PR creation on the selected full test suite passing.
+- [ ] Generate commit messages and PR body content from the completed implementation and test results.
+- [ ] Commit successful changes on the issue branch.
+- [ ] Push the issue branch to the GitHub remote.
+- [ ] Open a pull request through Docker MCP GitHub tools.
+- [ ] Add failure handling for missing test scripts, failed tests, model errors, Docker errors, MCP errors, and dirty git state.
+- [ ] Add resumability so rerunning the same issue can continue from an existing requirement doc or issue branch.
+- [ ] Add unit tests for CLI parsing, config loading, git detection, branch naming, requirement generation, test script selection, and PR body generation.
+- [ ] Add integration tests with mocked Docker Model Runner and Docker MCP GitHub interactions.
+- [ ] Add an end-to-end smoke test using a fixture repo and a test GitHub repository.
+
 ## Key Changes
 
 - Create a TypeScript CLI package with a command shape like:
