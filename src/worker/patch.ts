@@ -29,6 +29,7 @@ export function applyPatchInContainer(
     "git",
     "apply",
     "--check",
+    "--recount",
     "-",
   ], request.patch, runDocker, "Implementation patch failed validation.");
   runRequiredDocker([
@@ -39,6 +40,7 @@ export function applyPatchInContainer(
     request.containerName,
     "git",
     "apply",
+    "--recount",
     "-",
   ], request.patch, runDocker, "Unable to apply implementation patch.");
 }

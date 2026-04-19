@@ -3,6 +3,7 @@ import {
   ImplementationGenerationError,
   RequirementGenerationError,
   buildChatCompletionsUrl,
+  buildImplementationPatchMessages,
   generateImplementationPatchViaDockerModelRunner,
   generateRequirementMarkdownViaDockerModelRunner,
   parseChatCompletionPatch,
@@ -193,6 +194,20 @@ describe("parseChatCompletionPatch", () => {
       new ImplementationGenerationError(
         "Docker Model Runner did not return a unified diff patch.",
       ),
+    );
+  });
+});
+
+describe("buildImplementationPatchMessages", () => {
+  it("instructs the model to return exact hunk line counts", () => {
+    const messages = buildImplementationPatchMessages(repoSummary);
+
+    expect(messages[0]?.content).toContain("Make hunk line counts exact.");
+    expect(messages[0]?.content).toContain(
+      "the +N count in @@ -0,0 +1,N @@ must equal the number of added content lines",
+    );
+    expect(messages[0]?.content).toContain(
+      "Every line inside a hunk, including blank lines and markdown code fence lines",
     );
   });
 });
