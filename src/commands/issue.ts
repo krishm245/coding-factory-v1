@@ -4,11 +4,18 @@ import {
   RepositoryValidationError,
   loadRepositoryContext,
 } from "../git/repository.js";
+import {
+  GitHubIssueFetchError,
+  type GitHubIssueFetcher,
+  fetchGitHubIssueViaDockerMcp,
+  resolveMcpProfile,
+} from "../mcp/github.js";
 
 export interface IssueCommandOptions {
   model?: string;
   testScript?: string;
   dryRun?: boolean;
+  mcpProfile?: string;
 }
 
 export interface IssueCommandSummary {
@@ -16,11 +23,13 @@ export interface IssueCommandSummary {
   model?: string;
   testScript?: string;
   dryRun: boolean;
+  mcpProfile: string;
   repository: RepositoryContext;
 }
 
 export interface IssueCommandDependencies {
   loadRepositoryContext?: () => RepositoryContext;
+  fetchGitHubIssue?: GitHubIssueFetcher;
 }
 
 export function parseIssueNumber(value: string): number {
@@ -35,12 +44,14 @@ export function createIssueCommandSummary(
   issueNumber: number,
   options: IssueCommandOptions,
   repository: RepositoryContext,
+  mcpProfile: string,
 ): IssueCommandSummary {
   return {
     issueNumber,
     model: options.model,
     testScript: options.testScript,
     dryRun: options.dryRun ?? false,
+    mcpProfile,
     repository,
   };
 }
@@ -54,26 +65,71 @@ export function registerIssueCommand(
     .description("Run the coding factory for a GitHub issue.")
     .argument("<issue-number>", "GitHub issue number", parseIssueNumber)
     .option("--model <model>", "Docker Model Runner model to use")
-    .option("--test-script <script>", "package.json script that runs the full test suite")
-    .option("--dry-run", "parse inputs and report planned execution without making changes")
-    .action((issueNumber: number, options: IssueCommandOptions, command: Command) => {
-      let repository: RepositoryContext;
+    .option(
+      "--test-script <script>",
+      "package.json script that runs the full test suite",
+    )
+    .option(
+      "--dry-run",
+      "parse inputs and report planned execution without making changes",
+    )
+    .option(
+      "--mcp-profile <profile>",
+      "Docker MCP profile to use for GitHub issue access",
+    )
+    .action(
+      (issueNumber: number, options: IssueCommandOptions, command: Command) => {
+        let repository: RepositoryContext;
 
-      try {
-        repository = (dependencies.loadRepositoryContext ?? loadRepositoryContext)();
-      } catch (error) {
-        const message =
-          error instanceof RepositoryValidationError || error instanceof Error
-            ? error.message
-            : "Unable to validate git repository.";
+        try {
+          repository = (
+            dependencies.loadRepositoryContext ?? loadRepositoryContext
+          )();
+        } catch (error) {
+          const message =
+            error instanceof RepositoryValidationError || error instanceof Error
+              ? error.message
+              : "Unable to validate git repository.";
 
-        command.error(`Repository validation failed: ${message}`);
-        return;
-      }
+          command.error(`Repository validation failed: ${message}`);
+        }
 
-      const summary = createIssueCommandSummary(issueNumber, options, repository);
+        const mcpProfile = resolveMcpProfile(options.mcpProfile);
+        const summary = createIssueCommandSummary(
+          issueNumber,
+          options,
+          repository,
+          mcpProfile,
+        );
 
-      console.log("Coding Factory issue command parsed successfully.");
-      console.log(JSON.stringify(summary, null, 2));
-    });
+        try {
+          const issue = (
+            dependencies.fetchGitHubIssue ?? fetchGitHubIssueViaDockerMcp
+          )({
+            issueNumber,
+            repository: repository.github,
+            mcpProfile,
+          });
+
+          console.log("Coding Factory GitHub issue fetched successfully.");
+          console.log(
+            JSON.stringify(
+              {
+                ...summary,
+                issue,
+              },
+              null,
+              2,
+            ),
+          );
+        } catch (error) {
+          const message =
+            error instanceof GitHubIssueFetchError || error instanceof Error
+              ? error.message
+              : "Unable to fetch GitHub issue through Docker MCP.";
+
+          command.error(`GitHub issue fetch failed: ${message}`);
+        }
+      },
+    );
 }
