@@ -72,6 +72,16 @@ const diffSummary = {
   changedFiles: ["src/index.ts"],
   stat: " src/index.ts | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)",
 };
+const publishResult = {
+  branchName: "coding-factory/issue-123",
+  commitSha: "abc123",
+  remote: "origin",
+};
+const pullRequest = {
+  number: 7,
+  title: "Implement issue #123: Add Docker MCP issue fetching",
+  url: "https://github.com/owner/repo/pull/7",
+};
 
 function createImplementationDependencies() {
   return {
@@ -81,6 +91,13 @@ function createImplementationDependencies() {
     applyPatch: vi.fn(),
     collectGitDiffSummary: vi.fn(() => diffSummary),
     removeWorkerContainer: vi.fn(),
+  };
+}
+
+function createPublishDependencies() {
+  return {
+    publishIssueBranch: vi.fn(() => publishResult),
+    createPullRequest: vi.fn(() => pullRequest),
   };
 }
 
@@ -123,6 +140,8 @@ describe("issue command", () => {
     const writeRequirementDocument = vi.fn();
     const ensureIssueBranch = vi.fn(() => issueBranch);
     const startWorkerContainer = vi.fn(() => workerContainer);
+    const publishIssueBranch = vi.fn(() => publishResult);
+    const createPullRequest = vi.fn(() => pullRequest);
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue,
@@ -130,6 +149,8 @@ describe("issue command", () => {
       writeRequirementDocument,
       ensureIssueBranch,
       startWorkerContainer,
+      publishIssueBranch,
+      createPullRequest,
     });
 
     await program.parseAsync(
@@ -162,6 +183,8 @@ describe("issue command", () => {
     expect(writeRequirementDocument).not.toHaveBeenCalled();
     expect(ensureIssueBranch).not.toHaveBeenCalled();
     expect(startWorkerContainer).not.toHaveBeenCalled();
+    expect(publishIssueBranch).not.toHaveBeenCalled();
+    expect(createPullRequest).not.toHaveBeenCalled();
     expect(output).toHaveBeenCalledWith(
       "Coding Factory requirement markdown generated successfully.",
     );
@@ -354,6 +377,8 @@ describe("issue command", () => {
     const applyPatch = vi.fn();
     const collectGitDiffSummary = vi.fn(() => diffSummary);
     const removeWorkerContainer = vi.fn();
+    const publishIssueBranch = vi.fn(() => publishResult);
+    const createPullRequest = vi.fn(() => pullRequest);
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -368,6 +393,8 @@ describe("issue command", () => {
       applyPatch,
       collectGitDiffSummary,
       removeWorkerContainer,
+      publishIssueBranch,
+      createPullRequest,
     });
 
     await program.parseAsync(
@@ -411,10 +438,26 @@ describe("issue command", () => {
       repository: repositoryContext,
     });
     expect(removeWorkerContainer).toHaveBeenCalledWith("coding-factory-issue-123");
+    expect(publishIssueBranch).toHaveBeenCalledWith({
+      branchName: "coding-factory/issue-123",
+      commitMessage: "feat: implement issue 123",
+      repository: repositoryContext,
+    });
+    expect(createPullRequest).toHaveBeenCalledWith({
+      base: "main",
+      body: expect.stringContaining("Closes #123"),
+      head: "coding-factory/issue-123",
+      mcpProfile: "coding_factory",
+      repository: repositoryContext.github,
+      title: "Implement issue #123: Add Docker MCP issue fetching",
+    });
     expect(output).toHaveBeenCalledWith(
-      "Coding Factory implementation patch applied successfully.",
+      "Coding Factory pull request opened successfully.",
     );
-    expect(JSON.parse(output.mock.calls[1][0] as string)).toMatchObject({
+    expect(output).toHaveBeenCalledWith(
+      "Pull request: https://github.com/owner/repo/pull/7",
+    );
+    expect(JSON.parse(output.mock.calls[2][0] as string)).toMatchObject({
       implementation: {
         changedFiles: diffSummary.changedFiles,
         diffStat: diffSummary.stat,
@@ -422,6 +465,8 @@ describe("issue command", () => {
       cleanup: {
         containerRemoved: true,
       },
+      publish: publishResult,
+      pullRequest,
     });
   });
 
@@ -431,6 +476,7 @@ describe("issue command", () => {
     const writeRequirementDocument = vi.fn();
     const startWorkerContainer = vi.fn(() => workerContainer);
     const implementationDependencies = createImplementationDependencies();
+    const publishDependencies = createPublishDependencies();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -443,6 +489,7 @@ describe("issue command", () => {
       writeRequirementDocument,
       startWorkerContainer,
       ...implementationDependencies,
+      ...publishDependencies,
     });
 
     await program.parseAsync(
@@ -457,6 +504,8 @@ describe("issue command", () => {
     expect(implementationDependencies.removeWorkerContainer).toHaveBeenCalledWith(
       "coding-factory-issue-123",
     );
+    expect(publishDependencies.publishIssueBranch).toHaveBeenCalled();
+    expect(publishDependencies.createPullRequest).toHaveBeenCalled();
   });
 
   it("uses the worker image flag for the container", async () => {
@@ -466,6 +515,7 @@ describe("issue command", () => {
       workerImage: "python:3.12-slim",
     }));
     const implementationDependencies = createImplementationDependencies();
+    const publishDependencies = createPublishDependencies();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -474,6 +524,7 @@ describe("issue command", () => {
       generateRequirementMarkdown: async () => requirementMarkdown,
       startWorkerContainer,
       ...implementationDependencies,
+      ...publishDependencies,
     });
 
     await program.parseAsync(
@@ -499,6 +550,7 @@ describe("issue command", () => {
     expect(implementationDependencies.ensureWorkerImage).toHaveBeenCalledWith(
       "python:3.12-slim",
     );
+    expect(publishDependencies.createPullRequest).toHaveBeenCalled();
   });
 
   it("uses CODING_FACTORY_WORKER_IMAGE when no worker image flag is provided", async () => {
@@ -509,6 +561,7 @@ describe("issue command", () => {
       workerImage: "golang:1.23",
     }));
     const implementationDependencies = createImplementationDependencies();
+    const publishDependencies = createPublishDependencies();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -517,6 +570,7 @@ describe("issue command", () => {
       generateRequirementMarkdown: async () => requirementMarkdown,
       startWorkerContainer,
       ...implementationDependencies,
+      ...publishDependencies,
     });
 
     await program.parseAsync(
@@ -533,6 +587,97 @@ describe("issue command", () => {
     expect(implementationDependencies.ensureWorkerImage).toHaveBeenCalledWith(
       "golang:1.23",
     );
+    expect(publishDependencies.createPullRequest).toHaveBeenCalled();
+  });
+
+  it("fails after cleanup when issue branch publishing fails", async () => {
+    const removeWorkerContainer = vi.fn();
+    const createPullRequest = vi.fn(() => pullRequest);
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => issueBranch,
+      requirementDocumentExists: () => true,
+      ensureWorkerImage: vi.fn(),
+      startWorkerContainer: () => workerContainer,
+      collectRepoSummary: () => repoSummary,
+      generateImplementationPatch: async () => implementationPatch,
+      applyPatch: vi.fn(),
+      collectGitDiffSummary: () => diffSummary,
+      removeWorkerContainer,
+      publishIssueBranch: () => {
+        throw new Error("No changes to commit.");
+      },
+      createPullRequest,
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(
+        ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+        { from: "node" },
+      ),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message: "Issue branch publish failed: No changes to commit.",
+    });
+    expect(removeWorkerContainer).toHaveBeenCalledWith("coding-factory-issue-123");
+    expect(createPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("fails after publishing when pull request creation fails", async () => {
+    const publishIssueBranch = vi.fn(() => publishResult);
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => issueBranch,
+      requirementDocumentExists: () => true,
+      startWorkerContainer: () => workerContainer,
+      ...createImplementationDependencies(),
+      publishIssueBranch,
+      createPullRequest: () => {
+        throw new Error("Validation Failed: pull request already exists.");
+      },
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(
+        ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+        { from: "node" },
+      ),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message:
+        "Pull request creation failed: Validation Failed: pull request already exists.",
+    });
+    expect(publishIssueBranch).toHaveBeenCalledWith({
+      branchName: "coding-factory/issue-123",
+      commitMessage: "feat: implement issue 123",
+      repository: repositoryContext,
+    });
   });
 
   it("throws for invalid issue arguments", async () => {

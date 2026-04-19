@@ -34,10 +34,10 @@ References:
 - [ ] Add package manager detection and dependency installation inside the worker container.
 - [ ] Implement full-suite test script selection with `--test-script`, `test:all`, then `test` fallback.
 - [ ] Gate PR creation on the selected full test suite passing.
-- [ ] Generate commit messages and PR body content from the completed implementation and test results.
-- [ ] Commit successful changes on the issue branch.
-- [ ] Push the issue branch to the GitHub remote.
-- [ ] Open a pull request through Docker MCP GitHub tools.
+- [x] Generate deterministic commit messages and interim PR body content.
+- [x] Commit successful changes on the issue branch.
+- [x] Push the issue branch to the GitHub remote.
+- [x] Open a pull request through Docker MCP GitHub tools.
 - [ ] Add failure handling for missing test scripts, failed tests, model errors, Docker errors, MCP errors, and dirty git state.
 - [ ] Add resumability so rerunning the same issue can continue from an existing requirement doc or issue branch.
 - [ ] Add unit tests for CLI parsing, config loading, git detection, branch naming, requirement generation, test script selection, and PR body generation.

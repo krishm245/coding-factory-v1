@@ -10,6 +10,21 @@ export interface FetchGitHubIssueRequest {
   mcpProfile: string;
 }
 
+export interface CreatePullRequestRequest {
+  base: string;
+  body: string;
+  head: string;
+  mcpProfile: string;
+  repository: GitHubRepository;
+  title: string;
+}
+
+export interface CreatedPullRequest {
+  number?: number;
+  title?: string;
+  url: string;
+}
+
 export interface NormalizedGitHubIssue {
   issueNumber: number;
   title: string;
@@ -25,6 +40,10 @@ export interface NormalizedGitHubIssue {
 export type GitHubIssueFetcher = (
   request: FetchGitHubIssueRequest,
 ) => NormalizedGitHubIssue;
+
+export type PullRequestCreator = (
+  request: CreatePullRequestRequest,
+) => CreatedPullRequest;
 
 export class GitHubIssueFetchError extends Error {
   constructor(message: string) {
@@ -75,7 +94,55 @@ export function fetchGitHubIssueViaDockerMcp(
       throw error;
     }
 
-    throw new GitHubIssueFetchError(extractDockerMcpErrorMessage(error));
+    throw new GitHubIssueFetchError(
+      extractDockerMcpErrorMessage(
+        error,
+        "Unable to fetch GitHub issue through Docker MCP.",
+      ),
+    );
+  }
+}
+
+export function createPullRequestViaDockerMcp(
+  request: CreatePullRequestRequest,
+): CreatedPullRequest {
+  const { base, body, head, mcpProfile, repository, title } = request;
+
+  try {
+    const stdout = execFileSync(
+      "docker",
+      [
+        "mcp",
+        "tools",
+        "call",
+        "--gateway-arg",
+        `--profile=${mcpProfile}`,
+        "create_pull_request",
+        `owner=${repository.owner}`,
+        `repo=${repository.repo}`,
+        `base=${base}`,
+        `head=${head}`,
+        `title=${title}`,
+        `body=${body}`,
+      ],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    return normalizeCreatedPullRequest(parseDockerMcpJsonOutput(stdout));
+  } catch (error) {
+    if (error instanceof GitHubIssueFetchError) {
+      throw error;
+    }
+
+    throw new GitHubIssueFetchError(
+      extractDockerMcpErrorMessage(
+        error,
+        "Unable to open pull request through Docker MCP.",
+      ),
+    );
   }
 }
 
@@ -131,6 +198,26 @@ export function normalizeGitHubIssue(
   };
 }
 
+export function normalizeCreatedPullRequest(payload: unknown): CreatedPullRequest {
+  if (!isRecord(payload)) {
+    throw new GitHubIssueFetchError("Docker MCP pull request payload is not an object.");
+  }
+
+  const pullRequest = unwrapPullRequestPayload(payload);
+  const url = readOptionalString(pullRequest, "html_url")
+    ?? readOptionalString(pullRequest, "url");
+
+  if (!url) {
+    throw new GitHubIssueFetchError("Docker MCP pull request payload is missing a URL.");
+  }
+
+  return {
+    number: readNumber(pullRequest, "number"),
+    title: readOptionalString(pullRequest, "title"),
+    url,
+  };
+}
+
 function unwrapIssuePayload(payload: unknown): Record<string, unknown> {
   if (!isRecord(payload)) {
     throw new GitHubIssueFetchError("Docker MCP issue payload is not an object.");
@@ -140,6 +227,18 @@ function unwrapIssuePayload(payload: unknown): Record<string, unknown> {
 
   if (isRecord(nestedIssue)) {
     return nestedIssue;
+  }
+
+  return payload;
+}
+
+function unwrapPullRequestPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (isRecord(payload.pullRequest)) {
+    return payload.pullRequest;
+  }
+
+  if (isRecord(payload.pull_request)) {
+    return payload.pull_request;
   }
 
   return payload;
@@ -204,14 +303,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function extractDockerMcpErrorMessage(error: unknown): string {
+function extractDockerMcpErrorMessage(error: unknown, fallback: string): string {
   if (isRecord(error)) {
     const stderr = readBufferString(error, "stderr");
     const stdout = readBufferString(error, "stdout");
     const output = stderr || stdout;
 
     if (output) {
-      return simplifyDockerMcpOutput(output);
+      return simplifyDockerMcpOutput(output, fallback);
     }
   }
 
@@ -219,7 +318,7 @@ function extractDockerMcpErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Unable to fetch GitHub issue through Docker MCP.";
+  return fallback;
 }
 
 function readBufferString(record: Record<string, unknown>, key: string): string | undefined {
@@ -232,11 +331,11 @@ function readBufferString(record: Record<string, unknown>, key: string): string 
   return typeof value === "string" ? value : undefined;
 }
 
-function simplifyDockerMcpOutput(output: string): string {
+function simplifyDockerMcpOutput(output: string, fallback: string): string {
   const lines = output
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("Tool call took:"));
 
-  return lines.at(-1) ?? "Unable to fetch GitHub issue through Docker MCP.";
+  return lines.at(-1) ?? fallback;
 }

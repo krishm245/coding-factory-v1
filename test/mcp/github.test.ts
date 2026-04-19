@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GitHubIssueFetchError,
+  normalizeCreatedPullRequest,
   normalizeGitHubIssue,
   parseDockerMcpJsonOutput,
   resolveMcpProfile,
@@ -104,6 +105,57 @@ describe("normalizeGitHubIssue", () => {
   it("fails when required fields are missing", () => {
     expect(() => normalizeGitHubIssue({ title: "Missing state" }, request)).toThrow(
       new GitHubIssueFetchError("Docker MCP issue payload is missing required fields."),
+    );
+  });
+});
+
+describe("normalizeCreatedPullRequest", () => {
+  it("normalizes GitHub pull request payloads", () => {
+    expect(normalizeCreatedPullRequest({
+      number: 7,
+      title: "Implement issue #123",
+      html_url: "https://github.com/owner/repo/pull/7",
+    })).toEqual({
+      number: 7,
+      title: "Implement issue #123",
+      url: "https://github.com/owner/repo/pull/7",
+    });
+  });
+
+  it("accepts pull request payloads nested under a pullRequest key", () => {
+    expect(normalizeCreatedPullRequest({
+      pullRequest: {
+        number: 8,
+        title: "Nested pull request",
+        html_url: "https://github.com/owner/repo/pull/8",
+      },
+    })).toEqual({
+      number: 8,
+      title: "Nested pull request",
+      url: "https://github.com/owner/repo/pull/8",
+    });
+  });
+
+  it("accepts pull request payloads nested under a pull_request key", () => {
+    expect(normalizeCreatedPullRequest({
+      pull_request: {
+        number: 9,
+        title: "Snake case pull request",
+        html_url: "https://github.com/owner/repo/pull/9",
+      },
+    })).toEqual({
+      number: 9,
+      title: "Snake case pull request",
+      url: "https://github.com/owner/repo/pull/9",
+    });
+  });
+
+  it("fails when the pull request URL is missing", () => {
+    expect(() => normalizeCreatedPullRequest({
+      number: 7,
+      title: "Missing URL",
+    })).toThrow(
+      new GitHubIssueFetchError("Docker MCP pull request payload is missing a URL."),
     );
   });
 });
