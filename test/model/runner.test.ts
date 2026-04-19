@@ -42,6 +42,25 @@ const patch = [
   "-console.log('hello');",
   "+console.log('implemented');",
 ].join("\n");
+const simpleReadmePatch = [
+  "--- README.md",
+  "+++ README.md",
+  "@@ -0,0 +1,3 @@",
+  "+# Coding Factory CLI",
+  "+",
+  "+A local-LLM coding factory CLI.",
+].join("\n");
+const normalizedReadmePatch = [
+  "diff --git a/README.md b/README.md",
+  "new file mode 100644",
+  "index 0000000..0000000",
+  "--- /dev/null",
+  "+++ b/README.md",
+  "@@ -0,0 +1,3 @@",
+  "+# Coding Factory CLI",
+  "+",
+  "+A local-LLM coding factory CLI.",
+].join("\n");
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -147,6 +166,18 @@ describe("parseChatCompletionPatch", () => {
         },
       ],
     })).toBe(patch);
+  });
+
+  it("normalizes simple new-file diffs into git-style diffs", () => {
+    expect(parseChatCompletionPatch({
+      choices: [
+        {
+          message: {
+            content: simpleReadmePatch,
+          },
+        },
+      ],
+    })).toBe(normalizedReadmePatch);
   });
 
   it("fails when the model does not return a patch", () => {

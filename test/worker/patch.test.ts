@@ -14,10 +14,25 @@ const patch = [
   "-console.log('hello');",
   "+console.log('implemented');",
 ].join("\n");
+const newFilePatch = [
+  "diff --git a/README.md b/README.md",
+  "new file mode 100644",
+  "index 0000000..0000000",
+  "--- /dev/null",
+  "+++ b/README.md",
+  "@@ -0,0 +1,3 @@",
+  "+# Coding Factory CLI",
+  "+",
+  "+A local-LLM coding factory CLI.",
+].join("\n");
 
 describe("validateUnifiedDiffPatch", () => {
   it("accepts text unified diffs with relative repo paths", () => {
     expect(() => validateUnifiedDiffPatch(patch)).not.toThrow();
+  });
+
+  it("accepts git-style new-file patches", () => {
+    expect(() => validateUnifiedDiffPatch(newFilePatch)).not.toThrow();
   });
 
   it("rejects non-diff output", () => {
