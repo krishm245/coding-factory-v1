@@ -46,9 +46,43 @@ const issueBranch = {
 const workerContainer = {
   containerId: "container-123",
   containerName: "coding-factory-issue-123",
-  workerImage: "alpine:3.20",
+  workerImage: "coding-factory-worker:latest",
   workspacePath: "/workspace",
 };
+const repoSummary = {
+  requirementMarkdown,
+  tree: ["package.json", "src/index.ts"],
+  files: [
+    {
+      path: "src/index.ts",
+      content: "console.log('hello');\n",
+    },
+  ],
+};
+const implementationPatch = [
+  "diff --git a/src/index.ts b/src/index.ts",
+  "index 1111111..2222222 100644",
+  "--- a/src/index.ts",
+  "+++ b/src/index.ts",
+  "@@ -1 +1 @@",
+  "-console.log('hello');",
+  "+console.log('implemented');",
+].join("\n");
+const diffSummary = {
+  changedFiles: ["src/index.ts"],
+  stat: " src/index.ts | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)",
+};
+
+function createImplementationDependencies() {
+  return {
+    ensureWorkerImage: vi.fn(),
+    collectRepoSummary: vi.fn(() => repoSummary),
+    generateImplementationPatch: vi.fn(async () => implementationPatch),
+    applyPatch: vi.fn(),
+    collectGitDiffSummary: vi.fn(() => diffSummary),
+    removeWorkerContainer: vi.fn(),
+  };
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -140,7 +174,7 @@ describe("issue command", () => {
           testScript: "test:all",
           dryRun: true,
           mcpProfile: "test-profile",
-          workerImage: "alpine:3.20",
+          workerImage: "coding-factory-worker:latest",
           repository: repositoryContext,
           issue: githubIssue,
           requirementDocument: {
@@ -164,7 +198,7 @@ describe("issue command", () => {
         "coding_factory",
         "ai/test-model",
         "http://localhost:12434/engines/v1",
-        "alpine:3.20",
+        "coding-factory-worker:latest",
       ),
     ).toEqual({
       issueNumber: 123,
@@ -173,7 +207,7 @@ describe("issue command", () => {
       testScript: undefined,
       dryRun: false,
       mcpProfile: "coding_factory",
-      workerImage: "alpine:3.20",
+      workerImage: "coding-factory-worker:latest",
       repository: repositoryContext,
     });
   });
@@ -313,7 +347,13 @@ describe("issue command", () => {
       absolutePath: "/repo/requirements/issue-123.md",
       relativePath: "requirements/issue-123.md",
     }));
+    const ensureWorkerImage = vi.fn();
     const startWorkerContainer = vi.fn(() => workerContainer);
+    const collectRepoSummary = vi.fn(() => repoSummary);
+    const generateImplementationPatch = vi.fn(async () => implementationPatch);
+    const applyPatch = vi.fn();
+    const collectGitDiffSummary = vi.fn(() => diffSummary);
+    const removeWorkerContainer = vi.fn();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -321,7 +361,13 @@ describe("issue command", () => {
       requirementDocumentExists: () => false,
       generateRequirementMarkdown,
       writeRequirementDocument,
+      ensureWorkerImage,
       startWorkerContainer,
+      collectRepoSummary,
+      generateImplementationPatch,
+      applyPatch,
+      collectGitDiffSummary,
+      removeWorkerContainer,
     });
 
     await program.parseAsync(
@@ -345,11 +391,38 @@ describe("issue command", () => {
       branchName: "coding-factory/issue-123",
       issueNumber: 123,
       repository: repositoryContext,
-      workerImage: "alpine:3.20",
+      workerImage: "coding-factory-worker:latest",
     });
+    expect(ensureWorkerImage).toHaveBeenCalledWith("coding-factory-worker:latest");
+    expect(collectRepoSummary).toHaveBeenCalledWith({
+      issueNumber: 123,
+      repository: repositoryContext,
+    });
+    expect(generateImplementationPatch).toHaveBeenCalledWith({
+      repoSummary,
+      model: "ai/test-model",
+      modelBaseUrl: "http://localhost:12434/engines/v1",
+    });
+    expect(applyPatch).toHaveBeenCalledWith({
+      containerName: "coding-factory-issue-123",
+      patch: implementationPatch,
+    });
+    expect(collectGitDiffSummary).toHaveBeenCalledWith({
+      repository: repositoryContext,
+    });
+    expect(removeWorkerContainer).toHaveBeenCalledWith("coding-factory-issue-123");
     expect(output).toHaveBeenCalledWith(
-      "Coding Factory worker container started successfully.",
+      "Coding Factory implementation patch applied successfully.",
     );
+    expect(JSON.parse(output.mock.calls[1][0] as string)).toMatchObject({
+      implementation: {
+        changedFiles: diffSummary.changedFiles,
+        diffStat: diffSummary.stat,
+      },
+      cleanup: {
+        containerRemoved: true,
+      },
+    });
   });
 
   it("reuses an existing requirement document on the issue branch", async () => {
@@ -357,6 +430,7 @@ describe("issue command", () => {
     const generateRequirementMarkdown = vi.fn(async () => requirementMarkdown);
     const writeRequirementDocument = vi.fn();
     const startWorkerContainer = vi.fn(() => workerContainer);
+    const implementationDependencies = createImplementationDependencies();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -368,6 +442,7 @@ describe("issue command", () => {
       generateRequirementMarkdown,
       writeRequirementDocument,
       startWorkerContainer,
+      ...implementationDependencies,
     });
 
     await program.parseAsync(
@@ -378,6 +453,10 @@ describe("issue command", () => {
     expect(generateRequirementMarkdown).not.toHaveBeenCalled();
     expect(writeRequirementDocument).not.toHaveBeenCalled();
     expect(startWorkerContainer).toHaveBeenCalled();
+    expect(implementationDependencies.generateImplementationPatch).toHaveBeenCalled();
+    expect(implementationDependencies.removeWorkerContainer).toHaveBeenCalledWith(
+      "coding-factory-issue-123",
+    );
   });
 
   it("uses the worker image flag for the container", async () => {
@@ -386,6 +465,7 @@ describe("issue command", () => {
       ...workerContainer,
       workerImage: "python:3.12-slim",
     }));
+    const implementationDependencies = createImplementationDependencies();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -393,6 +473,7 @@ describe("issue command", () => {
       requirementDocumentExists: () => true,
       generateRequirementMarkdown: async () => requirementMarkdown,
       startWorkerContainer,
+      ...implementationDependencies,
     });
 
     await program.parseAsync(
@@ -415,6 +496,9 @@ describe("issue command", () => {
       repository: repositoryContext,
       workerImage: "python:3.12-slim",
     });
+    expect(implementationDependencies.ensureWorkerImage).toHaveBeenCalledWith(
+      "python:3.12-slim",
+    );
   });
 
   it("uses CODING_FACTORY_WORKER_IMAGE when no worker image flag is provided", async () => {
@@ -424,6 +508,7 @@ describe("issue command", () => {
       ...workerContainer,
       workerImage: "golang:1.23",
     }));
+    const implementationDependencies = createImplementationDependencies();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -431,6 +516,7 @@ describe("issue command", () => {
       requirementDocumentExists: () => true,
       generateRequirementMarkdown: async () => requirementMarkdown,
       startWorkerContainer,
+      ...implementationDependencies,
     });
 
     await program.parseAsync(
@@ -444,6 +530,9 @@ describe("issue command", () => {
       repository: repositoryContext,
       workerImage: "golang:1.23",
     });
+    expect(implementationDependencies.ensureWorkerImage).toHaveBeenCalledWith(
+      "golang:1.23",
+    );
   });
 
   it("throws for invalid issue arguments", async () => {
@@ -635,12 +724,94 @@ describe("issue command", () => {
     });
   });
 
+  it("removes the worker container when implementation patch generation fails", async () => {
+    const removeWorkerContainer = vi.fn();
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => issueBranch,
+      requirementDocumentExists: () => true,
+      ensureWorkerImage: vi.fn(),
+      startWorkerContainer: () => workerContainer,
+      collectRepoSummary: () => repoSummary,
+      generateImplementationPatch: () => {
+        throw new Error("Patch generation failed.");
+      },
+      removeWorkerContainer,
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(
+        ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+        { from: "node" },
+      ),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message: "Implementation failed: Patch generation failed.",
+    });
+    expect(removeWorkerContainer).toHaveBeenCalledWith("coding-factory-issue-123");
+  });
+
+  it("removes the worker container when implementation patch application fails", async () => {
+    const removeWorkerContainer = vi.fn();
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => issueBranch,
+      requirementDocumentExists: () => true,
+      ensureWorkerImage: vi.fn(),
+      startWorkerContainer: () => workerContainer,
+      collectRepoSummary: () => repoSummary,
+      generateImplementationPatch: async () => implementationPatch,
+      applyPatch: () => {
+        throw new Error("Patch does not apply.");
+      },
+      removeWorkerContainer,
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(
+        ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+        { from: "node" },
+      ),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message: "Implementation failed: Patch does not apply.",
+    });
+    expect(removeWorkerContainer).toHaveBeenCalledWith("coding-factory-issue-123");
+  });
+
   it("fails when worker container startup fails", async () => {
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
       requirementDocumentExists: () => true,
+      ensureWorkerImage: vi.fn(),
       startWorkerContainer: () => {
         throw new Error("Container already exists.");
       },

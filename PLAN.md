@@ -27,10 +27,10 @@ References:
 - [x] Integrate Docker MCP GitHub issue fetching for issue title, body, comments, labels, and repository metadata.
 - [x] Generate `requirements/issue-<number>.md` from GitHub issue data using the local LLM.
 - [x] Create and checkout `coding-factory/issue-<number>` branches from the current base branch.
-- [ ] Build the isolated Docker worker image used to operate on the mounted target repo.
+- [x] Build the isolated Docker worker image used to operate on the mounted target repo.
 - [x] Start the worker container with the repo mounted at `/workspace` and no broad host filesystem access.
 - [x] Add a Docker Model Runner client using the OpenAI-compatible endpoint.
-- [ ] Implement the worker-side repo inspection and implementation loop driven by the generated requirement document.
+- [x] Implement the worker-side repo inspection and implementation loop driven by the generated requirement document.
 - [ ] Add package manager detection and dependency installation inside the worker container.
 - [ ] Implement full-suite test script selection with `--test-script`, `test:all`, then `test` fallback.
 - [ ] Gate PR creation on the selected full test suite passing.

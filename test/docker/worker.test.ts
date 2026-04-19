@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WORKER_IMAGE,
   WorkerContainerError,
+  ensureWorkerImage,
   getWorkerContainerName,
+  removeWorkerContainer,
   resolveWorkerConfig,
   startWorkerContainer,
 } from "../../src/docker/worker.js";
@@ -46,6 +48,53 @@ describe("resolveWorkerConfig", () => {
 describe("getWorkerContainerName", () => {
   it("uses the issue number in the container name", () => {
     expect(getWorkerContainerName(123)).toBe("coding-factory-issue-123");
+  });
+});
+
+describe("ensureWorkerImage", () => {
+  it("does nothing for custom worker images", () => {
+    const calls: string[][] = [];
+
+    ensureWorkerImage("python:3.12-slim", (args) => {
+      calls.push(args);
+      return "";
+    });
+
+    expect(calls).toEqual([]);
+  });
+
+  it("uses the existing default worker image when present", () => {
+    const calls: string[][] = [];
+
+    ensureWorkerImage(DEFAULT_WORKER_IMAGE, (args) => {
+      calls.push(args);
+      return "";
+    });
+
+    expect(calls).toEqual([
+      ["image", "inspect", DEFAULT_WORKER_IMAGE],
+    ]);
+  });
+
+  it("builds the default worker image when missing", () => {
+    const calls: string[][] = [];
+
+    ensureWorkerImage(DEFAULT_WORKER_IMAGE, (args) => {
+      calls.push(args);
+
+      if (args[0] === "image") {
+        throw new Error("missing image");
+      }
+
+      return "";
+    });
+
+    expect(calls[0]).toEqual(["image", "inspect", DEFAULT_WORKER_IMAGE]);
+    expect(calls[1]).toEqual(expect.arrayContaining([
+      "build",
+      "-t",
+      DEFAULT_WORKER_IMAGE,
+    ]));
   });
 });
 
@@ -117,5 +166,20 @@ describe("startWorkerContainer", () => {
 
       return "container-123\n";
     })).toThrow(new WorkerContainerError("file missing"));
+  });
+});
+
+describe("removeWorkerContainer", () => {
+  it("removes the worker container by name", () => {
+    const calls: string[][] = [];
+
+    removeWorkerContainer("coding-factory-issue-123", (args) => {
+      calls.push(args);
+      return "";
+    });
+
+    expect(calls).toEqual([
+      ["rm", "-f", "coding-factory-issue-123"],
+    ]);
   });
 });
