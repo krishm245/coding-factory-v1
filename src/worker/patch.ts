@@ -19,7 +19,9 @@ export function applyPatchInContainer(
   request: ApplyPatchRequest,
   runDocker: DockerPatchRunner = defaultDockerPatchRunner,
 ): void {
-  validateUnifiedDiffPatch(request.patch);
+  const patch = normalizeUnifiedDiffHunkCounts(request.patch);
+
+  validateUnifiedDiffPatch(patch);
   runRequiredDocker([
     "exec",
     "-i",
@@ -31,7 +33,7 @@ export function applyPatchInContainer(
     "--check",
     "--recount",
     "-",
-  ], request.patch, runDocker, "Implementation patch failed validation.");
+  ], patch, runDocker, "Implementation patch failed validation.");
   runRequiredDocker([
     "exec",
     "-i",
@@ -42,7 +44,33 @@ export function applyPatchInContainer(
     "apply",
     "--recount",
     "-",
-  ], request.patch, runDocker, "Unable to apply implementation patch.");
+  ], patch, runDocker, "Unable to apply implementation patch.");
+}
+
+export function normalizeUnifiedDiffHunkCounts(patch: string): string {
+  const lines = patch.split(/\r?\n/);
+  const normalizedLines = [...lines];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const hunkMatch = parseHunkHeader(lines[index]);
+
+    if (!hunkMatch) {
+      continue;
+    }
+
+    const counts = countHunkLines(lines, index + 1);
+    if (
+      hunkMatch.oldCount === counts.oldCount
+      && hunkMatch.newCount === counts.newCount
+    ) {
+      continue;
+    }
+
+    normalizedLines[index] =
+      `@@ -${hunkMatch.oldStart},${counts.oldCount} +${hunkMatch.newStart},${counts.newCount} @@${hunkMatch.section}`;
+  }
+
+  return normalizedLines.join("\n");
 }
 
 export function validateUnifiedDiffPatch(patch: string): void {
@@ -82,6 +110,66 @@ function validateDiffHeader(line: string): void {
 
   validatePatchPath(match[1]);
   validatePatchPath(match[2]);
+}
+
+function parseHunkHeader(
+  line: string | undefined,
+): {
+  newCount: number;
+  newStart: string;
+  oldCount: number;
+  oldStart: string;
+  section: string;
+} | undefined {
+  const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(line ?? "");
+
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    oldCount: match[2] ? Number.parseInt(match[2], 10) : 1,
+    oldStart: match[1],
+    newCount: match[4] ? Number.parseInt(match[4], 10) : 1,
+    newStart: match[3],
+    section: match[5],
+  };
+}
+
+function countHunkLines(
+  lines: string[],
+  startIndex: number,
+): { newCount: number; oldCount: number } {
+  let newCount = 0;
+  let oldCount = 0;
+
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+
+    if (line.startsWith("diff --git ") || parseHunkHeader(line)) {
+      break;
+    }
+
+    if (line.startsWith("+") && !line.startsWith("+++ ")) {
+      newCount += 1;
+      continue;
+    }
+
+    if (line.startsWith("-") && !line.startsWith("--- ")) {
+      oldCount += 1;
+      continue;
+    }
+
+    if (line.startsWith(" ")) {
+      oldCount += 1;
+      newCount += 1;
+    }
+  }
+
+  return {
+    newCount,
+    oldCount,
+  };
 }
 
 function validatePatchPath(path: string): void {
