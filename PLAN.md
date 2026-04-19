@@ -24,8 +24,8 @@ References:
 - [x] Add the `coding-factory issue <issue-number>` command with `--model`, `--test-script`, and `--dry-run` options.
 - [skip] Implement configuration loading from an optional config file, environment variables, and CLI flags with clear precedence.
 - [x] Add git repo validation, current branch detection, clean-working-tree checks, and GitHub remote parsing.
-- [ ] Integrate Docker MCP GitHub issue fetching for issue title, body, comments, labels, and repository metadata.
-- [ ] Generate `requirements/issue-<number>.md` from GitHub issue data using the local LLM.
+- [x] Integrate Docker MCP GitHub issue fetching for issue title, body, comments, labels, and repository metadata.
+- [x] Generate `requirements/issue-<number>.md` from GitHub issue data using the local LLM.
 - [ ] Create and checkout `coding-factory/issue-<number>` branches from the current base branch.
 - [ ] Build the isolated Docker worker image used to operate on the mounted target repo.
 - [ ] Start the worker container with the repo mounted at `/workspace` and no broad host filesystem access.
