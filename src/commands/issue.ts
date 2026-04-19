@@ -25,8 +25,15 @@ import {
   loadRepositoryContext,
 } from "../git/repository.js";
 import {
+  type IssueBranchPublisher,
+  GitPublishError,
+  publishIssueBranch,
+} from "../git/publish.js";
+import {
   GitHubIssueFetchError,
   type GitHubIssueFetcher,
+  type PullRequestCreator,
+  createPullRequestViaDockerMcp,
   fetchGitHubIssueViaDockerMcp,
   resolveMcpProfile,
 } from "../mcp/github.js";
@@ -47,6 +54,7 @@ import {
   requirementDocumentExists,
   writeRequirementDocument,
 } from "../requirements/document.js";
+import { buildPullRequestContent } from "../pr/content.js";
 import {
   type PatchApplier,
   PatchApplicationError,
@@ -90,6 +98,8 @@ export interface IssueCommandDependencies {
   applyPatch?: PatchApplier;
   collectGitDiffSummary?: GitDiffSummaryCollector;
   removeWorkerContainer?: WorkerContainerRemover;
+  publishIssueBranch?: IssueBranchPublisher;
+  createPullRequest?: PullRequestCreator;
 }
 
 export function parseIssueNumber(value: string): number {
@@ -370,6 +380,7 @@ export function registerIssueCommand(
         }
 
         let implementation;
+        let diffSummary;
         let cleanupError: string | undefined;
 
         try {
@@ -393,7 +404,7 @@ export function registerIssueCommand(
             patch,
           });
 
-          const diffSummary = (
+          diffSummary = (
             dependencies.collectGitDiffSummary ?? collectGitDiffSummary
           )({
             repository,
@@ -429,10 +440,56 @@ export function registerIssueCommand(
           return;
         }
 
+        let publishResult;
+
+        try {
+          publishResult = (dependencies.publishIssueBranch ?? publishIssueBranch)({
+            branchName: issueBranch.branchName,
+            commitMessage: `feat: implement issue ${issueNumber}`,
+            repository,
+          });
+        } catch (error) {
+          const message =
+            error instanceof GitPublishError || error instanceof Error
+              ? error.message
+              : "Unable to publish issue branch.";
+
+          command.error(`Issue branch publish failed: ${message}`);
+          return;
+        }
+
+        const pullRequestContent = buildPullRequestContent({
+          changedFiles: diffSummary.changedFiles,
+          commitSha: publishResult.commitSha,
+          issue,
+          requirementPath: requirementDocument.path,
+        });
+        let pullRequest;
+
+        try {
+          pullRequest = (dependencies.createPullRequest ?? createPullRequestViaDockerMcp)({
+            base: repository.currentBranch,
+            body: pullRequestContent.body,
+            head: issueBranch.branchName,
+            mcpProfile,
+            repository: repository.github,
+            title: pullRequestContent.title,
+          });
+        } catch (error) {
+          const message =
+            error instanceof GitHubIssueFetchError || error instanceof Error
+              ? error.message
+              : "Unable to open pull request through Docker MCP.";
+
+          command.error(`Pull request creation failed: ${message}`);
+          return;
+        }
+
         try {
           console.log(
-            "Coding Factory implementation patch applied successfully.",
+            "Coding Factory pull request opened successfully.",
           );
+          console.log(`Pull request: ${pullRequest.url}`);
           console.log(
             JSON.stringify(
               {
@@ -445,6 +502,8 @@ export function registerIssueCommand(
                 cleanup: {
                   containerRemoved: true,
                 },
+                publish: publishResult,
+                pullRequest,
               },
               null,
               2,
