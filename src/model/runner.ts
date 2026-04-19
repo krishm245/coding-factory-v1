@@ -159,6 +159,10 @@ export function buildImplementationPatchMessages(
         "Every file change must start with a line like: diff --git a/<path> b/<path>.",
         "Use paths relative to the repository root.",
         "For new files, include: new file mode 100644, --- /dev/null, and +++ b/<path>.",
+        "Make hunk line counts exact.",
+        "For new files, the +N count in @@ -0,0 +1,N @@ must equal the number of added content lines.",
+        "Every line inside a hunk, including blank lines and markdown code fence lines, must start with +, -, or a space.",
+        "The patch must end with a trailing newline.",
         "Do not delete files.",
         "Do not include binary patches.",
       ].join(" "),
@@ -192,25 +196,33 @@ export function buildImplementationPatchMessages(
 
 export function parseChatCompletionMarkdown(payload: unknown): string {
   if (!isRecord(payload)) {
-    throw new RequirementGenerationError("Docker Model Runner returned a malformed response.");
+    throw new RequirementGenerationError(
+      "Docker Model Runner returned a malformed response.",
+    );
   }
 
   const choices = payload.choices;
 
   if (!Array.isArray(choices) || choices.length === 0) {
-    throw new RequirementGenerationError("Docker Model Runner returned no choices.");
+    throw new RequirementGenerationError(
+      "Docker Model Runner returned no choices.",
+    );
   }
 
   const firstChoice = choices[0];
 
   if (!isRecord(firstChoice) || !isRecord(firstChoice.message)) {
-    throw new RequirementGenerationError("Docker Model Runner returned a malformed choice.");
+    throw new RequirementGenerationError(
+      "Docker Model Runner returned a malformed choice.",
+    );
   }
 
   const content = firstChoice.message.content;
 
   if (typeof content !== "string" || content.trim().length === 0) {
-    throw new RequirementGenerationError("Docker Model Runner returned empty markdown.");
+    throw new RequirementGenerationError(
+      "Docker Model Runner returned empty markdown.",
+    );
   }
 
   return stripMarkdownFence(content.trim());
@@ -219,7 +231,9 @@ export function parseChatCompletionMarkdown(payload: unknown): string {
 export function parseChatCompletionPatch(payload: unknown): string {
   const rawPatch = parseChatCompletionContent(
     payload,
-    new ImplementationGenerationError("Docker Model Runner returned a malformed response."),
+    new ImplementationGenerationError(
+      "Docker Model Runner returned a malformed response.",
+    ),
   );
   const patch = normalizeSimpleUnifiedDiff(stripPatchFence(rawPatch.trim()));
 
@@ -232,7 +246,10 @@ export function parseChatCompletionPatch(payload: unknown): string {
   return patch;
 }
 
-function parseChatCompletionContent(payload: unknown, malformedError: Error): string {
+function parseChatCompletionContent(
+  payload: unknown,
+  malformedError: Error,
+): string {
   if (!isRecord(payload)) {
     throw malformedError;
   }
@@ -240,7 +257,9 @@ function parseChatCompletionContent(payload: unknown, malformedError: Error): st
   const choices = payload.choices;
 
   if (!Array.isArray(choices) || choices.length === 0) {
-    throw new RequirementGenerationError("Docker Model Runner returned no choices.");
+    throw new RequirementGenerationError(
+      "Docker Model Runner returned no choices.",
+    );
   }
 
   const firstChoice = choices[0];
@@ -252,14 +271,18 @@ function parseChatCompletionContent(payload: unknown, malformedError: Error): st
   const content = firstChoice.message.content;
 
   if (typeof content !== "string" || content.trim().length === 0) {
-    throw new RequirementGenerationError("Docker Model Runner returned empty markdown.");
+    throw new RequirementGenerationError(
+      "Docker Model Runner returned empty markdown.",
+    );
   }
 
   return content.trim();
 }
 
 function stripMarkdownFence(markdown: string): string {
-  const fenceMatch = /^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i.exec(markdown);
+  const fenceMatch = /^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i.exec(
+    markdown,
+  );
 
   return fenceMatch ? fenceMatch[1].trim() : markdown;
 }
@@ -286,7 +309,12 @@ function normalizeSimpleUnifiedDiff(patch: string): string {
   const oldPath = oldHeader.slice(4).trim();
   const newPath = newHeader.slice(4).trim();
 
-  if (!oldPath || !newPath || oldPath === "/dev/null" || newPath === "/dev/null") {
+  if (
+    !oldPath ||
+    !newPath ||
+    oldPath === "/dev/null" ||
+    newPath === "/dev/null"
+  ) {
     return patch;
   }
 

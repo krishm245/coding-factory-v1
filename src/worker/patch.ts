@@ -19,41 +19,96 @@ export function applyPatchInContainer(
   request: ApplyPatchRequest,
   runDocker: DockerPatchRunner = defaultDockerPatchRunner,
 ): void {
-  validateUnifiedDiffPatch(request.patch);
-  runRequiredDocker([
-    "exec",
-    "-i",
-    "--workdir",
-    "/workspace",
-    request.containerName,
-    "git",
-    "apply",
-    "--check",
-    "-",
-  ], request.patch, runDocker, "Implementation patch failed validation.");
-  runRequiredDocker([
-    "exec",
-    "-i",
-    "--workdir",
-    "/workspace",
-    request.containerName,
-    "git",
-    "apply",
-    "-",
-  ], request.patch, runDocker, "Unable to apply implementation patch.");
+  const patch = preparePatchForGitApply(request.patch);
+
+  validateUnifiedDiffPatch(patch);
+  runRequiredDocker(
+    [
+      "exec",
+      "-i",
+      "--workdir",
+      "/workspace",
+      request.containerName,
+      "git",
+      "apply",
+      "--check",
+      "--recount",
+      "-",
+    ],
+    patch,
+    runDocker,
+    "Implementation patch failed validation.",
+  );
+  runRequiredDocker(
+    [
+      "exec",
+      "-i",
+      "--workdir",
+      "/workspace",
+      request.containerName,
+      "git",
+      "apply",
+      "--recount",
+      "-",
+    ],
+    patch,
+    runDocker,
+    "Unable to apply implementation patch.",
+  );
+}
+
+export function preparePatchForGitApply(patch: string): string {
+  const normalized = normalizeUnifiedDiffHunkCounts(patch);
+
+  return normalized.endsWith("\n") ? normalized : `${normalized}\n`;
+}
+
+export function normalizeUnifiedDiffHunkCounts(patch: string): string {
+  const lines = patch.split(/\r?\n/);
+  const normalizedLines = [...lines];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const hunkMatch = parseHunkHeader(lines[index]);
+
+    if (!hunkMatch) {
+      continue;
+    }
+
+    const counts = countHunkLines(lines, index + 1);
+    if (
+      hunkMatch.oldCount === counts.oldCount &&
+      hunkMatch.newCount === counts.newCount
+    ) {
+      continue;
+    }
+
+    normalizedLines[index] =
+      `@@ -${hunkMatch.oldStart},${counts.oldCount} +${hunkMatch.newStart},${counts.newCount} @@${hunkMatch.section}`;
+  }
+
+  return normalizedLines.join("\n");
 }
 
 export function validateUnifiedDiffPatch(patch: string): void {
   if (!patch.includes("diff --git ")) {
-    throw new PatchApplicationError("Implementation patch is not a unified diff.");
+    throw new PatchApplicationError(
+      "Implementation patch is not a unified diff.",
+    );
   }
 
   if (patch.includes("GIT binary patch") || patch.includes("Binary files ")) {
-    throw new PatchApplicationError("Implementation patch must not include binary changes.");
+    throw new PatchApplicationError(
+      "Implementation patch must not include binary changes.",
+    );
   }
 
-  if (patch.includes("deleted file mode") || /^\+\+\+ \/dev\/null$/m.test(patch)) {
-    throw new PatchApplicationError("Implementation patch must not delete files.");
+  if (
+    patch.includes("deleted file mode") ||
+    /^\+\+\+ \/dev\/null$/m.test(patch)
+  ) {
+    throw new PatchApplicationError(
+      "Implementation patch must not delete files.",
+    );
   }
 
   for (const line of patch.split(/\r?\n/)) {
@@ -63,7 +118,10 @@ export function validateUnifiedDiffPatch(patch: string): void {
   }
 }
 
-export function defaultDockerPatchRunner(args: string[], input?: string): string {
+export function defaultDockerPatchRunner(
+  args: string[],
+  input?: string,
+): string {
   return execFileSync("docker", args, {
     encoding: "utf8",
     input,
@@ -82,13 +140,75 @@ function validateDiffHeader(line: string): void {
   validatePatchPath(match[2]);
 }
 
+function parseHunkHeader(line: string | undefined):
+  | {
+      newCount: number;
+      newStart: string;
+      oldCount: number;
+      oldStart: string;
+      section: string;
+    }
+  | undefined {
+  const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(
+    line ?? "",
+  );
+
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    oldCount: match[2] ? Number.parseInt(match[2], 10) : 1,
+    oldStart: match[1],
+    newCount: match[4] ? Number.parseInt(match[4], 10) : 1,
+    newStart: match[3],
+    section: match[5],
+  };
+}
+
+function countHunkLines(
+  lines: string[],
+  startIndex: number,
+): { newCount: number; oldCount: number } {
+  let newCount = 0;
+  let oldCount = 0;
+
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+
+    if (line.startsWith("diff --git ") || parseHunkHeader(line)) {
+      break;
+    }
+
+    if (line.startsWith("+") && !line.startsWith("+++ ")) {
+      newCount += 1;
+      continue;
+    }
+
+    if (line.startsWith("-") && !line.startsWith("--- ")) {
+      oldCount += 1;
+      continue;
+    }
+
+    if (line.startsWith(" ")) {
+      oldCount += 1;
+      newCount += 1;
+    }
+  }
+
+  return {
+    newCount,
+    oldCount,
+  };
+}
+
 function validatePatchPath(path: string): void {
   if (
-    path.startsWith("/")
-    || path.startsWith("../")
-    || path.includes("/../")
-    || path === ".."
-    || path.includes("\0")
+    path.startsWith("/") ||
+    path.startsWith("../") ||
+    path.includes("/../") ||
+    path === ".." ||
+    path.includes("\0")
   ) {
     throw new PatchApplicationError(`Unsafe patch path: ${path}`);
   }
@@ -103,7 +223,9 @@ function runRequiredDocker(
   try {
     return runDocker(args, input);
   } catch (error) {
-    throw new PatchApplicationError(extractDockerErrorMessage(error) ?? errorMessage);
+    throw new PatchApplicationError(
+      extractDockerErrorMessage(error) ?? errorMessage,
+    );
   }
 }
 
@@ -127,7 +249,10 @@ function extractDockerErrorMessage(error: unknown): string | undefined {
     : undefined;
 }
 
-function readBufferString(record: Record<string, unknown>, key: string): string | undefined {
+function readBufferString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const value = record[key];
 
   if (Buffer.isBuffer(value)) {
