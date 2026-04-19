@@ -1,5 +1,16 @@
 import { Command, InvalidArgumentError } from "commander";
 import {
+  WorkerContainerError,
+  type WorkerContainerStarter,
+  resolveWorkerConfig,
+  startWorkerContainer,
+} from "../docker/worker.js";
+import {
+  GitBranchError,
+  type IssueBranchEnsurer,
+  ensureIssueBranch,
+} from "../git/branch.js";
+import {
   type RepositoryContext,
   RepositoryValidationError,
   loadRepositoryContext,
@@ -18,8 +29,10 @@ import {
 } from "../model/runner.js";
 import {
   RequirementDocumentError,
+  type RequirementDocumentExistsChecker,
   type RequirementDocumentWriter,
   getRequirementDocumentPath,
+  requirementDocumentExists,
   writeRequirementDocument,
 } from "../requirements/document.js";
 
@@ -28,6 +41,7 @@ export interface IssueCommandOptions {
   testScript?: string;
   dryRun?: boolean;
   mcpProfile?: string;
+  workerImage?: string;
 }
 
 export interface IssueCommandSummary {
@@ -37,6 +51,7 @@ export interface IssueCommandSummary {
   testScript?: string;
   dryRun: boolean;
   mcpProfile: string;
+  workerImage: string;
   repository: RepositoryContext;
 }
 
@@ -45,6 +60,9 @@ export interface IssueCommandDependencies {
   fetchGitHubIssue?: GitHubIssueFetcher;
   generateRequirementMarkdown?: RequirementMarkdownGenerator;
   writeRequirementDocument?: RequirementDocumentWriter;
+  requirementDocumentExists?: RequirementDocumentExistsChecker;
+  ensureIssueBranch?: IssueBranchEnsurer;
+  startWorkerContainer?: WorkerContainerStarter;
 }
 
 export function parseIssueNumber(value: string): number {
@@ -62,6 +80,7 @@ export function createIssueCommandSummary(
   mcpProfile: string,
   model: string,
   modelBaseUrl: string,
+  workerImage: string,
 ): IssueCommandSummary {
   return {
     issueNumber,
@@ -70,6 +89,7 @@ export function createIssueCommandSummary(
     testScript: options.testScript,
     dryRun: options.dryRun ?? false,
     mcpProfile,
+    workerImage,
     repository,
   };
 }
@@ -94,6 +114,10 @@ export function registerIssueCommand(
     .option(
       "--mcp-profile <profile>",
       "Docker MCP profile to use for GitHub issue access",
+    )
+    .option(
+      "--worker-image <image>",
+      "Docker image to use for the mounted worker container",
     )
     .action(
       async (
@@ -123,7 +147,8 @@ export function registerIssueCommand(
           modelConfig = resolveModelConfig(options.model);
         } catch (error) {
           const message =
-            error instanceof RequirementGenerationError || error instanceof Error
+            error instanceof RequirementGenerationError ||
+            error instanceof Error
               ? error.message
               : "Unable to resolve Docker Model Runner configuration.";
 
@@ -132,6 +157,7 @@ export function registerIssueCommand(
         }
 
         const mcpProfile = resolveMcpProfile(options.mcpProfile);
+        const workerConfig = resolveWorkerConfig(options.workerImage);
         const summary = createIssueCommandSummary(
           issueNumber,
           options,
@@ -139,6 +165,7 @@ export function registerIssueCommand(
           mcpProfile,
           modelConfig.model,
           modelConfig.modelBaseUrl,
+          workerConfig.workerImage,
         );
 
         let issue;
@@ -161,34 +188,35 @@ export function registerIssueCommand(
           return;
         }
 
-        let markdown: string;
-
-        try {
-          markdown = await (
-            dependencies.generateRequirementMarkdown
-            ?? generateRequirementMarkdownViaDockerModelRunner
-          )({
-            issue,
-            model: modelConfig.model,
-            modelBaseUrl: modelConfig.modelBaseUrl,
-          });
-        } catch (error) {
-          const message =
-            error instanceof RequirementGenerationError || error instanceof Error
-              ? error.message
-              : "Unable to generate requirement markdown.";
-
-          command.error(`Requirement generation failed: ${message}`);
-          return;
-        }
-
         if (options.dryRun) {
+          let markdown: string;
+
+          try {
+            markdown = await generateRequirementMarkdown(
+              dependencies.generateRequirementMarkdown,
+              issue,
+              modelConfig,
+            );
+          } catch (error) {
+            const message =
+              error instanceof RequirementGenerationError ||
+              error instanceof Error
+                ? error.message
+                : "Unable to generate requirement markdown.";
+
+            command.error(`Requirement generation failed: ${message}`);
+            return;
+          }
+
           const requirementDocument = {
             dryRun: true,
-            path: getRequirementDocumentPath(repository, issueNumber).relativePath,
+            path: getRequirementDocumentPath(repository, issueNumber)
+              .relativePath,
           };
 
-          console.log("Coding Factory requirement markdown generated successfully.");
+          console.log(
+            "Coding Factory requirement markdown generated successfully.",
+          );
           console.log(
             JSON.stringify(
               {
@@ -204,25 +232,102 @@ export function registerIssueCommand(
           return;
         }
 
+        let issueBranch;
+
         try {
-          const result = (
-            dependencies.writeRequirementDocument ?? writeRequirementDocument
-          )({
+          issueBranch = (dependencies.ensureIssueBranch ?? ensureIssueBranch)({
             issueNumber,
-            markdown,
             repository,
           });
+        } catch (error) {
+          const message =
+            error instanceof GitBranchError || error instanceof Error
+              ? error.message
+              : "Unable to prepare issue branch.";
 
-          console.log("Coding Factory requirement document written successfully.");
+          command.error(`Issue branch setup failed: ${message}`);
+          return;
+        }
+
+        const requirementPath = getRequirementDocumentPath(
+          repository,
+          issueNumber,
+        ).relativePath;
+        const hasRequirementDocument = (
+          dependencies.requirementDocumentExists ?? requirementDocumentExists
+        )(repository, issueNumber);
+        let requirementDocument = {
+          dryRun: false,
+          path: requirementPath,
+          reused: hasRequirementDocument,
+        };
+
+        if (!hasRequirementDocument) {
+          let markdown: string;
+
+          try {
+            markdown = await generateRequirementMarkdown(
+              dependencies.generateRequirementMarkdown,
+              issue,
+              modelConfig,
+            );
+          } catch (error) {
+            const message =
+              error instanceof RequirementGenerationError ||
+              error instanceof Error
+                ? error.message
+                : "Unable to generate requirement markdown.";
+
+            command.error(`Requirement generation failed: ${message}`);
+            return;
+          }
+
+          try {
+            const result = (
+              dependencies.writeRequirementDocument ?? writeRequirementDocument
+            )({
+              issueNumber,
+              markdown,
+              repository,
+            });
+
+            requirementDocument = {
+              dryRun: false,
+              path: result.relativePath,
+              reused: false,
+            };
+          } catch (error) {
+            const message =
+              error instanceof RequirementDocumentError || error instanceof Error
+                ? error.message
+                : "Unable to write requirement document.";
+
+            command.error(`Requirement generation failed: ${message}`);
+            return;
+          }
+        }
+
+        try {
+          const workerContainer = (
+            dependencies.startWorkerContainer ?? startWorkerContainer
+          )({
+            branchName: issueBranch.branchName,
+            issueNumber,
+            repository,
+            workerImage: workerConfig.workerImage,
+          });
+
+          console.log(
+            "Coding Factory worker container started successfully.",
+          );
           console.log(
             JSON.stringify(
               {
                 ...summary,
                 issue,
-                requirementDocument: {
-                  dryRun: false,
-                  path: result.relativePath,
-                },
+                issueBranch,
+                requirementDocument,
+                workerContainer,
               },
               null,
               2,
@@ -230,12 +335,24 @@ export function registerIssueCommand(
           );
         } catch (error) {
           const message =
-            error instanceof RequirementDocumentError || error instanceof Error
+            error instanceof WorkerContainerError || error instanceof Error
               ? error.message
-              : "Unable to write requirement document.";
+              : "Unable to start worker container.";
 
-          command.error(`Requirement generation failed: ${message}`);
+          command.error(`Worker container startup failed: ${message}`);
         }
       },
     );
+}
+
+async function generateRequirementMarkdown(
+  generator: RequirementMarkdownGenerator | undefined,
+  issue: Parameters<RequirementMarkdownGenerator>[0]["issue"],
+  modelConfig: ReturnType<typeof resolveModelConfig>,
+): Promise<string> {
+  return (generator ?? generateRequirementMarkdownViaDockerModelRunner)({
+    issue,
+    model: modelConfig.model,
+    modelBaseUrl: modelConfig.modelBaseUrl,
+  });
 }

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { RepositoryContext } from "../git/repository.js";
@@ -17,6 +17,11 @@ export interface RequirementDocumentWriteResult {
 export type RequirementDocumentWriter = (
   request: WriteRequirementDocumentRequest,
 ) => RequirementDocumentWriteResult;
+
+export type RequirementDocumentExistsChecker = (
+  repository: RepositoryContext,
+  issueNumber: number,
+) => boolean;
 
 export class RequirementDocumentError extends Error {
   constructor(message: string) {
@@ -68,6 +73,13 @@ export function writeRequirementDocument(
   }
 
   return paths;
+}
+
+export function requirementDocumentExists(
+  repository: RepositoryContext,
+  issueNumber: number,
+): boolean {
+  return existsSync(getRequirementDocumentPath(repository, issueNumber).absolutePath);
 }
 
 function ensureTrailingNewline(markdown: string): string {

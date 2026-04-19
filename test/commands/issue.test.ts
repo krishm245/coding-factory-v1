@@ -39,6 +39,16 @@ const requirementMarkdown = [
   "",
   "Fetch GitHub issue data through Docker MCP.",
 ].join("\n");
+const issueBranch = {
+  branchName: "coding-factory/issue-123",
+  created: true,
+};
+const workerContainer = {
+  containerId: "container-123",
+  containerName: "coding-factory-issue-123",
+  workerImage: "alpine:3.20",
+  workspacePath: "/workspace",
+};
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -77,11 +87,15 @@ describe("issue command", () => {
     const fetchGitHubIssue = vi.fn(() => githubIssue);
     const generateRequirementMarkdown = vi.fn(async () => requirementMarkdown);
     const writeRequirementDocument = vi.fn();
+    const ensureIssueBranch = vi.fn(() => issueBranch);
+    const startWorkerContainer = vi.fn(() => workerContainer);
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue,
       generateRequirementMarkdown,
       writeRequirementDocument,
+      ensureIssueBranch,
+      startWorkerContainer,
     });
 
     await program.parseAsync(
@@ -112,6 +126,8 @@ describe("issue command", () => {
       modelBaseUrl: "http://localhost:12434/engines/v1",
     });
     expect(writeRequirementDocument).not.toHaveBeenCalled();
+    expect(ensureIssueBranch).not.toHaveBeenCalled();
+    expect(startWorkerContainer).not.toHaveBeenCalled();
     expect(output).toHaveBeenCalledWith(
       "Coding Factory requirement markdown generated successfully.",
     );
@@ -124,6 +140,7 @@ describe("issue command", () => {
           testScript: "test:all",
           dryRun: true,
           mcpProfile: "test-profile",
+          workerImage: "alpine:3.20",
           repository: repositoryContext,
           issue: githubIssue,
           requirementDocument: {
@@ -147,6 +164,7 @@ describe("issue command", () => {
         "coding_factory",
         "ai/test-model",
         "http://localhost:12434/engines/v1",
+        "alpine:3.20",
       ),
     ).toEqual({
       issueNumber: 123,
@@ -155,6 +173,7 @@ describe("issue command", () => {
       testScript: undefined,
       dryRun: false,
       mcpProfile: "coding_factory",
+      workerImage: "alpine:3.20",
       repository: repositoryContext,
     });
   });
@@ -286,17 +305,23 @@ describe("issue command", () => {
     });
   });
 
-  it("writes the generated requirement markdown when not in dry-run mode", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
+  it("creates the branch, writes requirements, and starts the worker container", async () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const ensureIssueBranch = vi.fn(() => issueBranch);
+    const generateRequirementMarkdown = vi.fn(async () => requirementMarkdown);
     const writeRequirementDocument = vi.fn(() => ({
       absolutePath: "/repo/requirements/issue-123.md",
       relativePath: "requirements/issue-123.md",
     }));
+    const startWorkerContainer = vi.fn(() => workerContainer);
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
-      generateRequirementMarkdown: async () => requirementMarkdown,
+      ensureIssueBranch,
+      requirementDocumentExists: () => false,
+      generateRequirementMarkdown,
       writeRequirementDocument,
+      startWorkerContainer,
     });
 
     await program.parseAsync(
@@ -304,10 +329,120 @@ describe("issue command", () => {
       { from: "node" },
     );
 
+    expect(ensureIssueBranch).toHaveBeenCalledWith({
+      issueNumber: 123,
+      repository: repositoryContext,
+    });
+    expect(
+      ensureIssueBranch.mock.invocationCallOrder[0],
+    ).toBeLessThan(generateRequirementMarkdown.mock.invocationCallOrder[0]);
     expect(writeRequirementDocument).toHaveBeenCalledWith({
       issueNumber: 123,
       markdown: requirementMarkdown,
       repository: repositoryContext,
+    });
+    expect(startWorkerContainer).toHaveBeenCalledWith({
+      branchName: "coding-factory/issue-123",
+      issueNumber: 123,
+      repository: repositoryContext,
+      workerImage: "alpine:3.20",
+    });
+    expect(output).toHaveBeenCalledWith(
+      "Coding Factory worker container started successfully.",
+    );
+  });
+
+  it("reuses an existing requirement document on the issue branch", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const generateRequirementMarkdown = vi.fn(async () => requirementMarkdown);
+    const writeRequirementDocument = vi.fn();
+    const startWorkerContainer = vi.fn(() => workerContainer);
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => ({
+        branchName: "coding-factory/issue-123",
+        created: false,
+      }),
+      requirementDocumentExists: () => true,
+      generateRequirementMarkdown,
+      writeRequirementDocument,
+      startWorkerContainer,
+    });
+
+    await program.parseAsync(
+      ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+      { from: "node" },
+    );
+
+    expect(generateRequirementMarkdown).not.toHaveBeenCalled();
+    expect(writeRequirementDocument).not.toHaveBeenCalled();
+    expect(startWorkerContainer).toHaveBeenCalled();
+  });
+
+  it("uses the worker image flag for the container", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const startWorkerContainer = vi.fn(() => ({
+      ...workerContainer,
+      workerImage: "python:3.12-slim",
+    }));
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => issueBranch,
+      requirementDocumentExists: () => true,
+      generateRequirementMarkdown: async () => requirementMarkdown,
+      startWorkerContainer,
+    });
+
+    await program.parseAsync(
+      [
+        "node",
+        "coding-factory",
+        "issue",
+        "123",
+        "--model",
+        "ai/test-model",
+        "--worker-image",
+        "python:3.12-slim",
+      ],
+      { from: "node" },
+    );
+
+    expect(startWorkerContainer).toHaveBeenCalledWith({
+      branchName: "coding-factory/issue-123",
+      issueNumber: 123,
+      repository: repositoryContext,
+      workerImage: "python:3.12-slim",
+    });
+  });
+
+  it("uses CODING_FACTORY_WORKER_IMAGE when no worker image flag is provided", async () => {
+    vi.stubEnv("CODING_FACTORY_WORKER_IMAGE", "golang:1.23");
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const startWorkerContainer = vi.fn(() => ({
+      ...workerContainer,
+      workerImage: "golang:1.23",
+    }));
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => issueBranch,
+      requirementDocumentExists: () => true,
+      generateRequirementMarkdown: async () => requirementMarkdown,
+      startWorkerContainer,
+    });
+
+    await program.parseAsync(
+      ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+      { from: "node" },
+    );
+
+    expect(startWorkerContainer).toHaveBeenCalledWith({
+      branchName: "coding-factory/issue-123",
+      issueNumber: 123,
+      repository: repositoryContext,
+      workerImage: "golang:1.23",
     });
   });
 
@@ -401,6 +536,42 @@ describe("issue command", () => {
     });
   });
 
+  it("fails when issue branch setup fails", async () => {
+    const startWorkerContainer = vi.fn(() => workerContainer);
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => {
+        throw new Error("Git working tree must be clean after checking out issue branch.");
+      },
+      startWorkerContainer,
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(
+        ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+        { from: "node" },
+      ),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message:
+        "Issue branch setup failed: Git working tree must be clean after checking out issue branch.",
+    });
+    expect(startWorkerContainer).not.toHaveBeenCalled();
+  });
+
   it("fails before GitHub fetching when no model is configured", async () => {
     const fetchGitHubIssue = vi.fn(() => githubIssue);
     const program = createProgram({
@@ -461,6 +632,40 @@ describe("issue command", () => {
     ).rejects.toMatchObject({
       code: "commander.error",
       message: "Requirement generation failed: Model request failed.",
+    });
+  });
+
+  it("fails when worker container startup fails", async () => {
+    const program = createProgram({
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => issueBranch,
+      requirementDocumentExists: () => true,
+      startWorkerContainer: () => {
+        throw new Error("Container already exists.");
+      },
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(
+        ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+        { from: "node" },
+      ),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message: "Worker container startup failed: Container already exists.",
     });
   });
 });
