@@ -225,6 +225,8 @@ export function registerIssueCommand(
           return;
         }
 
+        console.log(issue);
+
         if (options.dryRun) {
           let markdown: string;
 
@@ -335,7 +337,8 @@ export function registerIssueCommand(
             };
           } catch (error) {
             const message =
-              error instanceof RequirementDocumentError || error instanceof Error
+              error instanceof RequirementDocumentError ||
+              error instanceof Error
                 ? error.message
                 : "Unable to write requirement document.";
 
@@ -443,7 +446,9 @@ export function registerIssueCommand(
         let publishResult;
 
         try {
-          publishResult = (dependencies.publishIssueBranch ?? publishIssueBranch)({
+          publishResult = (
+            dependencies.publishIssueBranch ?? publishIssueBranch
+          )({
             branchName: issueBranch.branchName,
             commitMessage: `feat: implement issue ${issueNumber}`,
             repository,
@@ -467,7 +472,9 @@ export function registerIssueCommand(
         let pullRequest;
 
         try {
-          pullRequest = (dependencies.createPullRequest ?? createPullRequestViaDockerMcp)({
+          pullRequest = (
+            dependencies.createPullRequest ?? createPullRequestViaDockerMcp
+          )({
             base: repository.currentBranch,
             body: pullRequestContent.body,
             head: issueBranch.branchName,
@@ -486,9 +493,7 @@ export function registerIssueCommand(
         }
 
         try {
-          console.log(
-            "Coding Factory pull request opened successfully.",
-          );
+          console.log("Coding Factory pull request opened successfully.");
           console.log(`Pull request: ${pullRequest.url}`);
           console.log(
             JSON.stringify(
@@ -510,9 +515,10 @@ export function registerIssueCommand(
             ),
           );
         } catch (error) {
-          const message = error instanceof Error
-            ? error.message
-            : "Unable to print implementation result.";
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Unable to print implementation result.";
 
           command.error(`Implementation failed: ${message}`);
         }
@@ -534,10 +540,10 @@ async function generateRequirementMarkdown(
 
 function getImplementationErrorMessage(error: unknown): string {
   if (
-    error instanceof ImplementationGenerationError
-    || error instanceof PatchApplicationError
-    || error instanceof GitDiffSummaryError
-    || error instanceof Error
+    error instanceof ImplementationGenerationError ||
+    error instanceof PatchApplicationError ||
+    error instanceof GitDiffSummaryError ||
+    error instanceof Error
   ) {
     return error.message;
   }
