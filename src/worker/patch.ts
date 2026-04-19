@@ -19,7 +19,7 @@ export function applyPatchInContainer(
   request: ApplyPatchRequest,
   runDocker: DockerPatchRunner = defaultDockerPatchRunner,
 ): void {
-  const patch = normalizeUnifiedDiffHunkCounts(request.patch);
+  const patch = preparePatchForGitApply(request.patch);
 
   validateUnifiedDiffPatch(patch);
   runRequiredDocker([
@@ -45,6 +45,12 @@ export function applyPatchInContainer(
     "--recount",
     "-",
   ], patch, runDocker, "Unable to apply implementation patch.");
+}
+
+export function preparePatchForGitApply(patch: string): string {
+  const normalized = normalizeUnifiedDiffHunkCounts(patch);
+
+  return normalized.endsWith("\n") ? normalized : `${normalized}\n`;
 }
 
 export function normalizeUnifiedDiffHunkCounts(patch: string): string {

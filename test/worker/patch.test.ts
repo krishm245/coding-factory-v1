@@ -3,6 +3,7 @@ import {
   PatchApplicationError,
   applyPatchInContainer,
   normalizeUnifiedDiffHunkCounts,
+  preparePatchForGitApply,
   validateUnifiedDiffPatch,
 } from "../../src/worker/patch.js";
 
@@ -47,6 +48,41 @@ const undercountedNewFilePatch = [
   "+# Coding Factory CLI",
   "+",
   "+A local-LLM coding factory CLI.",
+].join("\n");
+const readmePatchWithBadCountAndMissingNewline = [
+  "diff --git a/README.md b/README.md",
+  "new file mode 100644",
+  "index 0000000..0a1b2c3",
+  "--- /dev/null",
+  "+++ b/README.md",
+  "@@ -0,0 +1,2 @@",
+  "+# Coding Factory CLI",
+  "+",
+  "+A local-LLM coding factory CLI designed to automate issue implementation.",
+  "+",
+  "+## Usage",
+  "+",
+  "+```bash",
+  "+coding-factory issue 123",
+  "+```",
+].join("\n");
+const preparedReadmePatch = [
+  "diff --git a/README.md b/README.md",
+  "new file mode 100644",
+  "index 0000000..0a1b2c3",
+  "--- /dev/null",
+  "+++ b/README.md",
+  "@@ -0,0 +1,9 @@",
+  "+# Coding Factory CLI",
+  "+",
+  "+A local-LLM coding factory CLI designed to automate issue implementation.",
+  "+",
+  "+## Usage",
+  "+",
+  "+```bash",
+  "+coding-factory issue 123",
+  "+```",
+  "",
 ].join("\n");
 
 describe("validateUnifiedDiffPatch", () => {
@@ -118,6 +154,18 @@ describe("normalizeUnifiedDiffHunkCounts", () => {
   });
 });
 
+describe("preparePatchForGitApply", () => {
+  it("repairs hunk counts and adds a trailing newline", () => {
+    expect(preparePatchForGitApply(readmePatchWithBadCountAndMissingNewline)).toBe(
+      preparedReadmePatch,
+    );
+  });
+
+  it("does not add an extra newline when one already exists", () => {
+    expect(preparePatchForGitApply(`${newFilePatch}\n`)).toBe(`${newFilePatch}\n`);
+  });
+});
+
 describe("applyPatchInContainer", () => {
   it("checks the patch before applying it inside the container", () => {
     const calls: Array<{ args: string[]; input?: string }> = [];
@@ -150,7 +198,7 @@ describe("applyPatchInContainer", () => {
           "--recount",
           "-",
         ],
-        input: patch,
+        input: `${patch}\n`,
       },
       {
         args: [
@@ -164,7 +212,7 @@ describe("applyPatchInContainer", () => {
           "--recount",
           "-",
         ],
-        input: patch,
+        input: `${patch}\n`,
       },
     ]);
   });
@@ -187,8 +235,8 @@ describe("applyPatchInContainer", () => {
     );
 
     expect(calls.map((call) => call.input)).toEqual([
-      newFilePatch,
-      newFilePatch,
+      `${newFilePatch}\n`,
+      `${newFilePatch}\n`,
     ]);
   });
 

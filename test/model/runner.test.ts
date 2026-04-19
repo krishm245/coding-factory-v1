@@ -209,6 +209,9 @@ describe("buildImplementationPatchMessages", () => {
     expect(messages[0]?.content).toContain(
       "Every line inside a hunk, including blank lines and markdown code fence lines",
     );
+    expect(messages[0]?.content).toContain(
+      "The patch must end with a trailing newline.",
+    );
   });
 });
 

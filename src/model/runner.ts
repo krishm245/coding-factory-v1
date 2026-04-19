@@ -162,6 +162,7 @@ export function buildImplementationPatchMessages(
         "Make hunk line counts exact.",
         "For new files, the +N count in @@ -0,0 +1,N @@ must equal the number of added content lines.",
         "Every line inside a hunk, including blank lines and markdown code fence lines, must start with +, -, or a space.",
+        "The patch must end with a trailing newline.",
         "Do not delete files.",
         "Do not include binary patches.",
       ].join(" "),
