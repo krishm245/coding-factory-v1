@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GitHubIssueFetchError,
+  explainCreatePullRequestToolError,
   normalizeCreatedPullRequest,
   normalizeGitHubIssue,
   parseDockerMcpJsonOutput,
@@ -157,5 +158,27 @@ describe("normalizeCreatedPullRequest", () => {
     })).toThrow(
       new GitHubIssueFetchError("Docker MCP pull request payload is missing a URL."),
     );
+  });
+});
+
+describe("explainCreatePullRequestToolError", () => {
+  it("turns unknown create_pull_request tool errors into actionable configuration guidance", () => {
+    expect(explainCreatePullRequestToolError(
+      'calling tool: calling "tools/call": unknown tool "create_pull_request"',
+      "coding_factory",
+    )).toBe(
+      [
+        'Docker MCP profile "coding_factory" does not expose the GitHub "create_pull_request" tool.',
+        "Enable the GitHub MCP pull_requests toolset and make sure the server is not running in read-only mode.",
+        "Verify with: docker mcp tools list --gateway-arg --profile=coding_factory",
+      ].join(" "),
+    );
+  });
+
+  it("keeps unrelated Docker MCP errors unchanged", () => {
+    expect(explainCreatePullRequestToolError(
+      "Validation Failed: pull request already exists.",
+      "coding_factory",
+    )).toBe("Validation Failed: pull request already exists.");
   });
 });

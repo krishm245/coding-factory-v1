@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import type { GitHubRepository } from "../git/repository.js";
 
 export const DEFAULT_MCP_PROFILE = "coding_factory";
+const CREATE_PULL_REQUEST_TOOL = "create_pull_request";
 
 export interface FetchGitHubIssueRequest {
   issueNumber: number;
@@ -117,7 +118,7 @@ export function createPullRequestViaDockerMcp(
         "call",
         "--gateway-arg",
         `--profile=${mcpProfile}`,
-        "create_pull_request",
+        CREATE_PULL_REQUEST_TOOL,
         `owner=${repository.owner}`,
         `repo=${repository.repo}`,
         `base=${base}`,
@@ -137,11 +138,13 @@ export function createPullRequestViaDockerMcp(
       throw error;
     }
 
+    const message = extractDockerMcpErrorMessage(
+      error,
+      "Unable to open pull request through Docker MCP.",
+    );
+
     throw new GitHubIssueFetchError(
-      extractDockerMcpErrorMessage(
-        error,
-        "Unable to open pull request through Docker MCP.",
-      ),
+      explainCreatePullRequestToolError(message, mcpProfile),
     );
   }
 }
@@ -242,6 +245,18 @@ function unwrapPullRequestPayload(payload: Record<string, unknown>): Record<stri
   }
 
   return payload;
+}
+
+export function explainCreatePullRequestToolError(message: string, mcpProfile: string): string {
+  if (!message.includes(`unknown tool "${CREATE_PULL_REQUEST_TOOL}"`)) {
+    return message;
+  }
+
+  return [
+    `Docker MCP profile "${mcpProfile}" does not expose the GitHub "${CREATE_PULL_REQUEST_TOOL}" tool.`,
+    "Enable the GitHub MCP pull_requests toolset and make sure the server is not running in read-only mode.",
+    `Verify with: docker mcp tools list --gateway-arg --profile=${mcpProfile}`,
+  ].join(" ");
 }
 
 function readAuthor(issue: Record<string, unknown>): string | undefined {
