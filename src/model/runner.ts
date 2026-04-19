@@ -152,11 +152,13 @@ export function buildImplementationPatchMessages(
     {
       role: "system",
       content: [
-        "You modify repositories by returning a single unified diff patch.",
+        "You modify repositories by returning a single git-style unified diff patch.",
         "Return only the patch.",
         "Do not include prose.",
         "Do not wrap the patch in a markdown code fence.",
-        "Use standard git diff format with paths relative to the repository root.",
+        "Every file change must start with a line like: diff --git a/<path> b/<path>.",
+        "Use paths relative to the repository root.",
+        "For new files, include: new file mode 100644, --- /dev/null, and +++ b/<path>.",
         "Do not delete files.",
         "Do not include binary patches.",
       ].join(" "),
@@ -176,7 +178,13 @@ export function buildImplementationPatchMessages(
           file.content,
           "",
         ]),
-        "Return the implementation as one unified diff patch.",
+        "Return the implementation as one git-style unified diff patch.",
+        "Example new-file header:",
+        "diff --git a/README.md b/README.md",
+        "new file mode 100644",
+        "index 0000000..0000000",
+        "--- /dev/null",
+        "+++ b/README.md",
       ].join("\n"),
     },
   ];
@@ -209,10 +217,11 @@ export function parseChatCompletionMarkdown(payload: unknown): string {
 }
 
 export function parseChatCompletionPatch(payload: unknown): string {
-  const patch = parseChatCompletionContent(
+  const rawPatch = parseChatCompletionContent(
     payload,
     new ImplementationGenerationError("Docker Model Runner returned a malformed response."),
   );
+  const patch = normalizeSimpleUnifiedDiff(stripPatchFence(rawPatch.trim()));
 
   if (!patch.includes("diff --git ")) {
     throw new ImplementationGenerationError(
@@ -220,7 +229,7 @@ export function parseChatCompletionPatch(payload: unknown): string {
     );
   }
 
-  return stripPatchFence(patch.trim());
+  return patch;
 }
 
 function parseChatCompletionContent(payload: unknown, malformedError: Error): string {
@@ -259,6 +268,46 @@ function stripPatchFence(patch: string): string {
   const fenceMatch = /^```(?:diff|patch)?\s*\n([\s\S]*?)\n```$/i.exec(patch);
 
   return fenceMatch ? fenceMatch[1].trim() : patch;
+}
+
+function normalizeSimpleUnifiedDiff(patch: string): string {
+  if (patch.includes("diff --git ")) {
+    return patch;
+  }
+
+  const lines = patch.split(/\r?\n/);
+  const oldHeader = lines[0];
+  const newHeader = lines[1];
+
+  if (!oldHeader?.startsWith("--- ") || !newHeader?.startsWith("+++ ")) {
+    return patch;
+  }
+
+  const oldPath = oldHeader.slice(4).trim();
+  const newPath = newHeader.slice(4).trim();
+
+  if (!oldPath || !newPath || oldPath === "/dev/null" || newPath === "/dev/null") {
+    return patch;
+  }
+
+  if (oldPath !== newPath) {
+    return patch;
+  }
+
+  const body = lines.slice(2);
+
+  if (!body.some((line) => line.startsWith("@@ "))) {
+    return patch;
+  }
+
+  return [
+    `diff --git a/${oldPath} b/${newPath}`,
+    "new file mode 100644",
+    "index 0000000..0000000",
+    "--- /dev/null",
+    `+++ b/${newPath}`,
+    ...body,
+  ].join("\n");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
