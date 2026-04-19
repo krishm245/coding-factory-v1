@@ -56,15 +56,8 @@ export function writeRequirementDocument(
     });
     writeFileSync(paths.absolutePath, ensureTrailingNewline(request.markdown), {
       encoding: "utf8",
-      flag: "wx",
     });
   } catch (error) {
-    if (isNodeError(error) && error.code === "EEXIST") {
-      throw new RequirementDocumentError(
-        `Requirement document already exists: ${paths.relativePath}`,
-      );
-    }
-
     const message = error instanceof Error
       ? error.message
       : "Unable to write requirement document.";
@@ -84,8 +77,4 @@ export function requirementDocumentExists(
 
 function ensureTrailingNewline(markdown: string): string {
   return markdown.endsWith("\n") ? markdown : `${markdown}\n`;
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
 }

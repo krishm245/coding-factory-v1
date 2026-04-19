@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RepositoryContext } from "../../src/git/repository.js";
 import {
-  RequirementDocumentError,
   getRequirementDocumentPath,
   writeRequirementDocument,
 } from "../../src/requirements/document.js";
@@ -46,7 +45,7 @@ describe("requirement document files", () => {
     expect(readFileSync(result.absolutePath, "utf8")).toBe("# Issue 123\n");
   });
 
-  it("refuses to overwrite an existing requirement document", () => {
+  it("overwrites an existing requirement document", () => {
     const repository = createRepositoryContext(createTempRoot());
     const existingPath = join(repository.root, "requirements", "issue-123.md");
     writeRequirementDocument({
@@ -56,15 +55,14 @@ describe("requirement document files", () => {
     });
     writeFileSync(existingPath, "# Edited by a human\n", "utf8");
 
-    expect(() => writeRequirementDocument({
+    const result = writeRequirementDocument({
       issueNumber: 123,
       markdown: "# New issue 123",
       repository,
-    })).toThrow(
-      new RequirementDocumentError(
-        "Requirement document already exists: requirements/issue-123.md",
-      ),
-    );
+    });
+
+    expect(result.relativePath).toBe("requirements/issue-123.md");
+    expect(readFileSync(existingPath, "utf8")).toBe("# New issue 123\n");
   });
 });
 

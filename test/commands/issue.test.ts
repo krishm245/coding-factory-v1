@@ -49,6 +49,10 @@ const workerContainer = {
   workerImage: "coding-factory-worker:latest",
   workspacePath: "/workspace",
 };
+const requirementWriteResult = {
+  absolutePath: "/repo/requirements/issue-123.md",
+  relativePath: "requirements/issue-123.md",
+};
 const repoSummary = {
   requirementMarkdown,
   tree: ["package.json", "src/index.ts"],
@@ -99,6 +103,26 @@ function createPublishDependencies() {
     publishIssueBranch: vi.fn(() => publishResult),
     createPullRequest: vi.fn(() => pullRequest),
   };
+}
+
+function createRequirementDependencies(exists = true) {
+  return {
+    requirementDocumentExists: vi.fn(() => exists),
+    generateRequirementMarkdown: vi.fn(async () => requirementMarkdown),
+    writeRequirementDocument: vi.fn(() => requirementWriteResult),
+  };
+}
+
+function findJsonLog(calls: unknown[][]): string {
+  const message = calls
+    .map((call) => call[0])
+    .find((value): value is string => typeof value === "string" && value.startsWith("{"));
+
+  if (!message) {
+    throw new Error("Expected a JSON console log.");
+  }
+
+  return message;
 }
 
 afterEach(() => {
@@ -366,10 +390,7 @@ describe("issue command", () => {
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const ensureIssueBranch = vi.fn(() => issueBranch);
     const generateRequirementMarkdown = vi.fn(async () => requirementMarkdown);
-    const writeRequirementDocument = vi.fn(() => ({
-      absolutePath: "/repo/requirements/issue-123.md",
-      relativePath: "requirements/issue-123.md",
-    }));
+    const writeRequirementDocument = vi.fn(() => requirementWriteResult);
     const ensureWorkerImage = vi.fn();
     const startWorkerContainer = vi.fn(() => workerContainer);
     const collectRepoSummary = vi.fn(() => repoSummary);
@@ -457,7 +478,10 @@ describe("issue command", () => {
     expect(output).toHaveBeenCalledWith(
       "Pull request: https://github.com/owner/repo/pull/7",
     );
-    expect(JSON.parse(output.mock.calls[2][0] as string)).toMatchObject({
+    expect(JSON.parse(findJsonLog(output.mock.calls))).toMatchObject({
+      requirementDocument: {
+        overwritten: false,
+      },
       implementation: {
         changedFiles: diffSummary.changedFiles,
         diffStat: diffSummary.stat,
@@ -470,10 +494,10 @@ describe("issue command", () => {
     });
   });
 
-  it("reuses an existing requirement document on the issue branch", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
+  it("overwrites an existing requirement document on the issue branch", async () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const generateRequirementMarkdown = vi.fn(async () => requirementMarkdown);
-    const writeRequirementDocument = vi.fn();
+    const writeRequirementDocument = vi.fn(() => requirementWriteResult);
     const startWorkerContainer = vi.fn(() => workerContainer);
     const implementationDependencies = createImplementationDependencies();
     const publishDependencies = createPublishDependencies();
@@ -497,8 +521,16 @@ describe("issue command", () => {
       { from: "node" },
     );
 
-    expect(generateRequirementMarkdown).not.toHaveBeenCalled();
-    expect(writeRequirementDocument).not.toHaveBeenCalled();
+    expect(generateRequirementMarkdown).toHaveBeenCalledWith({
+      issue: githubIssue,
+      model: "ai/test-model",
+      modelBaseUrl: "http://localhost:12434/engines/v1",
+    });
+    expect(writeRequirementDocument).toHaveBeenCalledWith({
+      issueNumber: 123,
+      markdown: requirementMarkdown,
+      repository: repositoryContext,
+    });
     expect(startWorkerContainer).toHaveBeenCalled();
     expect(implementationDependencies.generateImplementationPatch).toHaveBeenCalled();
     expect(implementationDependencies.removeWorkerContainer).toHaveBeenCalledWith(
@@ -506,6 +538,11 @@ describe("issue command", () => {
     );
     expect(publishDependencies.publishIssueBranch).toHaveBeenCalled();
     expect(publishDependencies.createPullRequest).toHaveBeenCalled();
+    expect(JSON.parse(findJsonLog(output.mock.calls))).toMatchObject({
+      requirementDocument: {
+        overwritten: true,
+      },
+    });
   });
 
   it("uses the worker image flag for the container", async () => {
@@ -520,8 +557,7 @@ describe("issue command", () => {
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
-      requirementDocumentExists: () => true,
-      generateRequirementMarkdown: async () => requirementMarkdown,
+      ...createRequirementDependencies(),
       startWorkerContainer,
       ...implementationDependencies,
       ...publishDependencies,
@@ -566,8 +602,7 @@ describe("issue command", () => {
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
-      requirementDocumentExists: () => true,
-      generateRequirementMarkdown: async () => requirementMarkdown,
+      ...createRequirementDependencies(),
       startWorkerContainer,
       ...implementationDependencies,
       ...publishDependencies,
@@ -597,7 +632,7 @@ describe("issue command", () => {
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
-      requirementDocumentExists: () => true,
+      ...createRequirementDependencies(),
       ensureWorkerImage: vi.fn(),
       startWorkerContainer: () => workerContainer,
       collectRepoSummary: () => repoSummary,
@@ -642,7 +677,7 @@ describe("issue command", () => {
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
-      requirementDocumentExists: () => true,
+      ...createRequirementDependencies(),
       startWorkerContainer: () => workerContainer,
       ...createImplementationDependencies(),
       publishIssueBranch,
@@ -875,7 +910,7 @@ describe("issue command", () => {
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
-      requirementDocumentExists: () => true,
+      ...createRequirementDependencies(),
       ensureWorkerImage: vi.fn(),
       startWorkerContainer: () => workerContainer,
       collectRepoSummary: () => repoSummary,
@@ -915,7 +950,7 @@ describe("issue command", () => {
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
-      requirementDocumentExists: () => true,
+      ...createRequirementDependencies(),
       ensureWorkerImage: vi.fn(),
       startWorkerContainer: () => workerContainer,
       collectRepoSummary: () => repoSummary,
@@ -955,7 +990,7 @@ describe("issue command", () => {
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
-      requirementDocumentExists: () => true,
+      ...createRequirementDependencies(),
       ensureWorkerImage: vi.fn(),
       startWorkerContainer: () => {
         throw new Error("Container already exists.");

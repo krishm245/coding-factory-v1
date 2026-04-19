@@ -298,53 +298,51 @@ export function registerIssueCommand(
         let requirementDocument = {
           dryRun: false,
           path: requirementPath,
-          reused: hasRequirementDocument,
+          overwritten: hasRequirementDocument,
         };
 
-        if (!hasRequirementDocument) {
-          let markdown: string;
+        let markdown: string;
 
-          try {
-            markdown = await generateRequirementMarkdown(
-              dependencies.generateRequirementMarkdown,
-              issue,
-              modelConfig,
-            );
-          } catch (error) {
-            const message =
-              error instanceof RequirementGenerationError ||
-              error instanceof Error
-                ? error.message
-                : "Unable to generate requirement markdown.";
+        try {
+          markdown = await generateRequirementMarkdown(
+            dependencies.generateRequirementMarkdown,
+            issue,
+            modelConfig,
+          );
+        } catch (error) {
+          const message =
+            error instanceof RequirementGenerationError ||
+            error instanceof Error
+              ? error.message
+              : "Unable to generate requirement markdown.";
 
-            command.error(`Requirement generation failed: ${message}`);
-            return;
-          }
+          command.error(`Requirement generation failed: ${message}`);
+          return;
+        }
 
-          try {
-            const result = (
-              dependencies.writeRequirementDocument ?? writeRequirementDocument
-            )({
-              issueNumber,
-              markdown,
-              repository,
-            });
+        try {
+          const result = (
+            dependencies.writeRequirementDocument ?? writeRequirementDocument
+          )({
+            issueNumber,
+            markdown,
+            repository,
+          });
 
-            requirementDocument = {
-              dryRun: false,
-              path: result.relativePath,
-              reused: false,
-            };
-          } catch (error) {
-            const message =
-              error instanceof RequirementDocumentError ||
-              error instanceof Error
-                ? error.message
-                : "Unable to write requirement document.";
+          requirementDocument = {
+            dryRun: false,
+            path: result.relativePath,
+            overwritten: hasRequirementDocument,
+          };
+        } catch (error) {
+          const message =
+            error instanceof RequirementDocumentError ||
+            error instanceof Error
+              ? error.message
+              : "Unable to write requirement document.";
 
-            command.error(`Requirement generation failed: ${message}`);
-            return;
-          }
+          command.error(`Requirement generation failed: ${message}`);
+          return;
         }
 
         try {
