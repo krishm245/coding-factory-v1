@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { RepositoryContext } from "../git/repository.js";
 import { getRequirementDocumentPath } from "../requirements/document.js";
 
-export const DEFAULT_WORKER_IMAGE = "alpine:3.20";
+export const DEFAULT_WORKER_IMAGE = "coding-factory-worker:latest";
 
 export interface WorkerConfig {
   workerImage: string;
@@ -28,6 +30,9 @@ export type DockerRunner = (args: string[]) => string;
 export type WorkerContainerStarter = (
   request: StartWorkerContainerRequest,
 ) => WorkerContainerResult;
+
+export type WorkerImageEnsurer = (workerImage: string) => void;
+export type WorkerContainerRemover = (containerName: string) => void;
 
 export class WorkerContainerError extends Error {
   constructor(message: string) {
@@ -99,11 +104,63 @@ export function startWorkerContainer(
   };
 }
 
+export function ensureWorkerImage(
+  workerImage: string,
+  runDocker: DockerRunner = defaultDockerRunner,
+): void {
+  if (workerImage !== DEFAULT_WORKER_IMAGE) {
+    return;
+  }
+
+  try {
+    runDocker(["image", "inspect", workerImage]);
+    return;
+  } catch {
+    // Build the project-owned default image below.
+  }
+
+  runRequiredDocker(
+    [
+      "build",
+      "-t",
+      workerImage,
+      "-f",
+      getWorkerDockerfilePath(),
+      getWorkerBuildContextPath(),
+    ],
+    runDocker,
+    `Unable to build worker image ${workerImage}.`,
+  );
+}
+
+export function removeWorkerContainer(
+  containerName: string,
+  runDocker: DockerRunner = defaultDockerRunner,
+): void {
+  runRequiredDocker(
+    ["rm", "-f", containerName],
+    runDocker,
+    `Unable to remove worker container ${containerName}.`,
+  );
+}
+
 export function defaultDockerRunner(args: string[]): string {
   return execFileSync("docker", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
+}
+
+function getWorkerDockerfilePath(): string {
+  return join(getProjectRoot(), "worker", "Dockerfile");
+}
+
+function getWorkerBuildContextPath(): string {
+  return join(getProjectRoot(), "worker");
+}
+
+function getProjectRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 }
 
 function runRequiredDocker(

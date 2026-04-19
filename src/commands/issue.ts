@@ -1,7 +1,11 @@
 import { Command, InvalidArgumentError } from "commander";
 import {
   WorkerContainerError,
+  type WorkerContainerRemover,
   type WorkerContainerStarter,
+  type WorkerImageEnsurer,
+  ensureWorkerImage,
+  removeWorkerContainer,
   resolveWorkerConfig,
   startWorkerContainer,
 } from "../docker/worker.js";
@@ -10,6 +14,11 @@ import {
   type IssueBranchEnsurer,
   ensureIssueBranch,
 } from "../git/branch.js";
+import {
+  type GitDiffSummaryCollector,
+  GitDiffSummaryError,
+  collectGitDiffSummary,
+} from "../git/diff.js";
 import {
   type RepositoryContext,
   RepositoryValidationError,
@@ -22,8 +31,11 @@ import {
   resolveMcpProfile,
 } from "../mcp/github.js";
 import {
+  ImplementationGenerationError,
+  type ImplementationPatchGenerator,
   RequirementGenerationError,
   type RequirementMarkdownGenerator,
+  generateImplementationPatchViaDockerModelRunner,
   generateRequirementMarkdownViaDockerModelRunner,
   resolveModelConfig,
 } from "../model/runner.js";
@@ -35,6 +47,15 @@ import {
   requirementDocumentExists,
   writeRequirementDocument,
 } from "../requirements/document.js";
+import {
+  type PatchApplier,
+  PatchApplicationError,
+  applyPatchInContainer,
+} from "../worker/patch.js";
+import {
+  type RepoSummaryCollector,
+  collectRepoSummary,
+} from "../worker/repo-summary.js";
 
 export interface IssueCommandOptions {
   model?: string;
@@ -62,7 +83,13 @@ export interface IssueCommandDependencies {
   writeRequirementDocument?: RequirementDocumentWriter;
   requirementDocumentExists?: RequirementDocumentExistsChecker;
   ensureIssueBranch?: IssueBranchEnsurer;
+  ensureWorkerImage?: WorkerImageEnsurer;
   startWorkerContainer?: WorkerContainerStarter;
+  collectRepoSummary?: RepoSummaryCollector;
+  generateImplementationPatch?: ImplementationPatchGenerator;
+  applyPatch?: PatchApplier;
+  collectGitDiffSummary?: GitDiffSummaryCollector;
+  removeWorkerContainer?: WorkerContainerRemover;
 }
 
 export function parseIssueNumber(value: string): number {
@@ -308,7 +335,23 @@ export function registerIssueCommand(
         }
 
         try {
-          const workerContainer = (
+          (dependencies.ensureWorkerImage ?? ensureWorkerImage)(
+            workerConfig.workerImage,
+          );
+        } catch (error) {
+          const message =
+            error instanceof WorkerContainerError || error instanceof Error
+              ? error.message
+              : "Unable to prepare worker image.";
+
+          command.error(`Worker image setup failed: ${message}`);
+          return;
+        }
+
+        let workerContainer;
+
+        try {
+          workerContainer = (
             dependencies.startWorkerContainer ?? startWorkerContainer
           )({
             branchName: issueBranch.branchName,
@@ -316,9 +359,79 @@ export function registerIssueCommand(
             repository,
             workerImage: workerConfig.workerImage,
           });
+        } catch (error) {
+          const message =
+            error instanceof WorkerContainerError || error instanceof Error
+              ? error.message
+              : "Unable to start worker container.";
 
+          command.error(`Worker container startup failed: ${message}`);
+          return;
+        }
+
+        let implementation;
+        let cleanupError: string | undefined;
+
+        try {
+          const repoSummary = (
+            dependencies.collectRepoSummary ?? collectRepoSummary
+          )({
+            issueNumber,
+            repository,
+          });
+          const patch = await (
+            dependencies.generateImplementationPatch ??
+            generateImplementationPatchViaDockerModelRunner
+          )({
+            repoSummary,
+            model: modelConfig.model,
+            modelBaseUrl: modelConfig.modelBaseUrl,
+          });
+
+          (dependencies.applyPatch ?? applyPatchInContainer)({
+            containerName: workerContainer.containerName,
+            patch,
+          });
+
+          const diffSummary = (
+            dependencies.collectGitDiffSummary ?? collectGitDiffSummary
+          )({
+            repository,
+          });
+
+          implementation = {
+            changedFiles: diffSummary.changedFiles,
+            diffStat: diffSummary.stat,
+          };
+        } catch (error) {
+          const message = getImplementationErrorMessage(error);
+
+          cleanupError = cleanupWorkerContainer(
+            workerContainer.containerName,
+            dependencies.removeWorkerContainer,
+          );
+
+          const cleanupSuffix = cleanupError
+            ? ` Cleanup also failed: ${cleanupError}`
+            : "";
+
+          command.error(`Implementation failed: ${message}${cleanupSuffix}`);
+          return;
+        }
+
+        cleanupError = cleanupWorkerContainer(
+          workerContainer.containerName,
+          dependencies.removeWorkerContainer,
+        );
+
+        if (cleanupError) {
+          command.error(`Worker container cleanup failed: ${cleanupError}`);
+          return;
+        }
+
+        try {
           console.log(
-            "Coding Factory worker container started successfully.",
+            "Coding Factory implementation patch applied successfully.",
           );
           console.log(
             JSON.stringify(
@@ -328,18 +441,21 @@ export function registerIssueCommand(
                 issueBranch,
                 requirementDocument,
                 workerContainer,
+                implementation,
+                cleanup: {
+                  containerRemoved: true,
+                },
               },
               null,
               2,
             ),
           );
         } catch (error) {
-          const message =
-            error instanceof WorkerContainerError || error instanceof Error
-              ? error.message
-              : "Unable to start worker container.";
+          const message = error instanceof Error
+            ? error.message
+            : "Unable to print implementation result.";
 
-          command.error(`Worker container startup failed: ${message}`);
+          command.error(`Implementation failed: ${message}`);
         }
       },
     );
@@ -355,4 +471,31 @@ async function generateRequirementMarkdown(
     model: modelConfig.model,
     modelBaseUrl: modelConfig.modelBaseUrl,
   });
+}
+
+function getImplementationErrorMessage(error: unknown): string {
+  if (
+    error instanceof ImplementationGenerationError
+    || error instanceof PatchApplicationError
+    || error instanceof GitDiffSummaryError
+    || error instanceof Error
+  ) {
+    return error.message;
+  }
+
+  return "Unable to implement requirement.";
+}
+
+function cleanupWorkerContainer(
+  containerName: string,
+  remover: WorkerContainerRemover | undefined,
+): string | undefined {
+  try {
+    (remover ?? removeWorkerContainer)(containerName);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error
+      ? error.message
+      : "Unable to remove worker container.";
+  }
 }

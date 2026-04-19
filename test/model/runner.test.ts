@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ImplementationGenerationError,
   RequirementGenerationError,
   buildChatCompletionsUrl,
+  generateImplementationPatchViaDockerModelRunner,
   generateRequirementMarkdownViaDockerModelRunner,
+  parseChatCompletionPatch,
   parseChatCompletionMarkdown,
   resolveModelConfig,
 } from "../../src/model/runner.js";
@@ -20,6 +23,25 @@ const issue: NormalizedGitHubIssue = {
   },
   mcpProfile: "coding_factory",
 };
+const repoSummary = {
+  requirementMarkdown: "# Issue 123\n\n## Requirements\n\n- Change output.",
+  tree: ["src/index.ts"],
+  files: [
+    {
+      path: "src/index.ts",
+      content: "console.log('hello');\n",
+    },
+  ],
+};
+const patch = [
+  "diff --git a/src/index.ts b/src/index.ts",
+  "index 1111111..2222222 100644",
+  "--- a/src/index.ts",
+  "+++ b/src/index.ts",
+  "@@ -1 +1 @@",
+  "-console.log('hello');",
+  "+console.log('implemented');",
+].join("\n");
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -102,6 +124,48 @@ describe("parseChatCompletionMarkdown", () => {
   });
 });
 
+describe("parseChatCompletionPatch", () => {
+  it("returns a unified diff patch from the first chat completion choice", () => {
+    expect(parseChatCompletionPatch({
+      choices: [
+        {
+          message: {
+            content: patch,
+          },
+        },
+      ],
+    })).toBe(patch);
+  });
+
+  it("strips diff code fences if a model includes them anyway", () => {
+    expect(parseChatCompletionPatch({
+      choices: [
+        {
+          message: {
+            content: `\`\`\`diff\n${patch}\n\`\`\``,
+          },
+        },
+      ],
+    })).toBe(patch);
+  });
+
+  it("fails when the model does not return a patch", () => {
+    expect(() => parseChatCompletionPatch({
+      choices: [
+        {
+          message: {
+            content: "I changed the file.",
+          },
+        },
+      ],
+    })).toThrow(
+      new ImplementationGenerationError(
+        "Docker Model Runner did not return a unified diff patch.",
+      ),
+    );
+  });
+});
+
 describe("generateRequirementMarkdownViaDockerModelRunner", () => {
   it("calls Docker Model Runner and returns generated markdown", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
@@ -147,6 +211,56 @@ describe("generateRequirementMarkdownViaDockerModelRunner", () => {
     })).rejects.toThrow(
       new RequirementGenerationError(
         "Docker Model Runner request failed with HTTP 404.",
+      ),
+    );
+  });
+});
+
+describe("generateImplementationPatchViaDockerModelRunner", () => {
+  it("calls Docker Model Runner and returns a generated patch", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: patch,
+          },
+        },
+      ],
+    }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateImplementationPatchViaDockerModelRunner({
+      repoSummary,
+      model: "ai/test-model",
+      modelBaseUrl: "http://localhost:12434/engines/v1",
+    })).resolves.toBe(patch);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:12434/engines/v1/chat/completions",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"model\":\"ai/test-model\""),
+      }),
+    );
+  });
+
+  it("fails clearly for non-2xx responses", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("bad gateway", {
+      status: 502,
+    })));
+
+    await expect(generateImplementationPatchViaDockerModelRunner({
+      repoSummary,
+      model: "ai/test-model",
+      modelBaseUrl: "http://localhost:12434/engines/v1",
+    })).rejects.toThrow(
+      new ImplementationGenerationError(
+        "Docker Model Runner request failed with HTTP 502.",
       ),
     );
   });
