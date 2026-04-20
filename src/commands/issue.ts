@@ -84,6 +84,8 @@ export interface IssueCommandSummary {
   repository: RepositoryContext;
 }
 
+export type ProgressLogger = (message: string) => void;
+
 export interface IssueCommandDependencies {
   loadRepositoryContext?: () => RepositoryContext;
   fetchGitHubIssue?: GitHubIssueFetcher;
@@ -100,6 +102,7 @@ export interface IssueCommandDependencies {
   removeWorkerContainer?: WorkerContainerRemover;
   publishIssueBranch?: IssueBranchPublisher;
   createPullRequest?: PullRequestCreator;
+  logProgress?: ProgressLogger;
 }
 
 export function parseIssueNumber(value: string): number {
@@ -162,7 +165,10 @@ export function registerIssueCommand(
         options: IssueCommandOptions,
         command: Command,
       ) => {
+        const logProgress = dependencies.logProgress ?? defaultProgressLogger;
         let repository: RepositoryContext;
+
+        logProgress("Validating git repository context.");
 
         try {
           repository = (
@@ -179,6 +185,8 @@ export function registerIssueCommand(
         }
 
         let modelConfig: ReturnType<typeof resolveModelConfig>;
+
+        logProgress("Resolving model, MCP, and worker configuration.");
 
         try {
           modelConfig = resolveModelConfig(options.model);
@@ -207,6 +215,10 @@ export function registerIssueCommand(
 
         let issue;
 
+        logProgress(
+          `Fetching GitHub issue #${issueNumber} from ${repository.github.owner}/${repository.github.repo} using Docker MCP profile ${mcpProfile}.`,
+        );
+
         try {
           issue = (
             dependencies.fetchGitHubIssue ?? fetchGitHubIssueViaDockerMcp
@@ -229,6 +241,10 @@ export function registerIssueCommand(
 
         if (options.dryRun) {
           let markdown: string;
+
+          logProgress(
+            `Generating requirement markdown for issue #${issueNumber} with model ${modelConfig.model}.`,
+          );
 
           try {
             markdown = await generateRequirementMarkdown(
@@ -253,6 +269,10 @@ export function registerIssueCommand(
               .relativePath,
           };
 
+          logProgress(
+            "Dry run enabled; printing generated requirement markdown without modifying the repository.",
+          );
+
           console.log(
             "Coding Factory requirement markdown generated successfully.",
           );
@@ -272,6 +292,8 @@ export function registerIssueCommand(
         }
 
         let issueBranch;
+
+        logProgress(`Preparing issue branch for issue #${issueNumber}.`);
 
         try {
           issueBranch = (dependencies.ensureIssueBranch ?? ensureIssueBranch)({
@@ -303,6 +325,10 @@ export function registerIssueCommand(
 
         let markdown: string;
 
+        logProgress(
+          `Generating requirement markdown for issue #${issueNumber} with model ${modelConfig.model}.`,
+        );
+
         try {
           markdown = await generateRequirementMarkdown(
             dependencies.generateRequirementMarkdown,
@@ -319,6 +345,8 @@ export function registerIssueCommand(
           command.error(`Requirement generation failed: ${message}`);
           return;
         }
+
+        logProgress(`Writing requirement document to ${requirementPath}.`);
 
         try {
           const result = (
@@ -345,6 +373,8 @@ export function registerIssueCommand(
           return;
         }
 
+        logProgress(`Preparing worker image ${workerConfig.workerImage}.`);
+
         try {
           (dependencies.ensureWorkerImage ?? ensureWorkerImage)(
             workerConfig.workerImage,
@@ -360,6 +390,10 @@ export function registerIssueCommand(
         }
 
         let workerContainer;
+
+        logProgress(
+          `Starting worker container for branch ${issueBranch.branchName}.`,
+        );
 
         try {
           workerContainer = (
@@ -385,12 +419,19 @@ export function registerIssueCommand(
         let cleanupError: string | undefined;
 
         try {
+          logProgress("Collecting repository context for implementation generation.");
+
           const repoSummary = (
             dependencies.collectRepoSummary ?? collectRepoSummary
           )({
             issueNumber,
             repository,
           });
+
+          logProgress(
+            `Generating implementation patch with model ${modelConfig.model}.`,
+          );
+
           const patch = await (
             dependencies.generateImplementationPatch ??
             generateImplementationPatchViaDockerModelRunner
@@ -400,10 +441,16 @@ export function registerIssueCommand(
             modelBaseUrl: modelConfig.modelBaseUrl,
           });
 
+          logProgress(
+            `Applying implementation patch in worker container ${workerContainer.containerName}.`,
+          );
+
           (dependencies.applyPatch ?? applyPatchInContainer)({
             containerName: workerContainer.containerName,
             patch,
           });
+
+          logProgress("Collecting git diff summary.");
 
           diffSummary = (
             dependencies.collectGitDiffSummary ?? collectGitDiffSummary
@@ -418,6 +465,8 @@ export function registerIssueCommand(
         } catch (error) {
           const message = getImplementationErrorMessage(error);
 
+          logProgress(`Removing worker container ${workerContainer.containerName}.`);
+
           cleanupError = cleanupWorkerContainer(
             workerContainer.containerName,
             dependencies.removeWorkerContainer,
@@ -431,6 +480,8 @@ export function registerIssueCommand(
           return;
         }
 
+        logProgress(`Removing worker container ${workerContainer.containerName}.`);
+
         cleanupError = cleanupWorkerContainer(
           workerContainer.containerName,
           dependencies.removeWorkerContainer,
@@ -442,6 +493,8 @@ export function registerIssueCommand(
         }
 
         let publishResult;
+
+        logProgress(`Publishing issue branch ${issueBranch.branchName}.`);
 
         try {
           publishResult = (
@@ -468,6 +521,8 @@ export function registerIssueCommand(
           requirementPath: requirementDocument.path,
         });
         let pullRequest;
+
+        logProgress(`Opening pull request for issue #${issueNumber}.`);
 
         try {
           pullRequest = (
@@ -522,6 +577,10 @@ export function registerIssueCommand(
         }
       },
     );
+}
+
+function defaultProgressLogger(message: string): void {
+  console.error(message);
 }
 
 async function generateRequirementMarkdown(
