@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../../src/cli.js";
 import {
   createIssueCommandSummary,
@@ -125,6 +125,14 @@ function findJsonLog(calls: unknown[][]): string {
   return message;
 }
 
+function progressMessages(logProgress: ReturnType<typeof vi.fn>): unknown[] {
+  return logProgress.mock.calls.map((call) => call[0]);
+}
+
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -166,6 +174,7 @@ describe("issue command", () => {
     const startWorkerContainer = vi.fn(() => workerContainer);
     const publishIssueBranch = vi.fn(() => publishResult);
     const createPullRequest = vi.fn(() => pullRequest);
+    const logProgress = vi.fn();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue,
@@ -175,6 +184,7 @@ describe("issue command", () => {
       startWorkerContainer,
       publishIssueBranch,
       createPullRequest,
+      logProgress,
     });
 
     await program.parseAsync(
@@ -209,6 +219,13 @@ describe("issue command", () => {
     expect(startWorkerContainer).not.toHaveBeenCalled();
     expect(publishIssueBranch).not.toHaveBeenCalled();
     expect(createPullRequest).not.toHaveBeenCalled();
+    expect(progressMessages(logProgress)).toEqual([
+      "Validating git repository context.",
+      "Resolving model, MCP, and worker configuration.",
+      "Fetching GitHub issue #123 from owner/repo using Docker MCP profile test-profile.",
+      "Generating requirement markdown for issue #123 with model ai/test-model.",
+      "Dry run enabled; printing generated requirement markdown without modifying the repository.",
+    ]);
     expect(output).toHaveBeenCalledWith(
       "Coding Factory requirement markdown generated successfully.",
     );
@@ -400,6 +417,7 @@ describe("issue command", () => {
     const removeWorkerContainer = vi.fn();
     const publishIssueBranch = vi.fn(() => publishResult);
     const createPullRequest = vi.fn(() => pullRequest);
+    const logProgress = vi.fn();
     const program = createProgram({
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
@@ -416,6 +434,7 @@ describe("issue command", () => {
       removeWorkerContainer,
       publishIssueBranch,
       createPullRequest,
+      logProgress,
     });
 
     await program.parseAsync(
@@ -472,6 +491,23 @@ describe("issue command", () => {
       repository: repositoryContext.github,
       title: "Implement issue #123: Add Docker MCP issue fetching",
     });
+    expect(progressMessages(logProgress)).toEqual([
+      "Validating git repository context.",
+      "Resolving model, MCP, and worker configuration.",
+      "Fetching GitHub issue #123 from owner/repo using Docker MCP profile coding_factory.",
+      "Preparing issue branch for issue #123.",
+      "Generating requirement markdown for issue #123 with model ai/test-model.",
+      "Writing requirement document to requirements/issue-123.md.",
+      "Preparing worker image coding-factory-worker:latest.",
+      "Starting worker container for branch coding-factory/issue-123.",
+      "Collecting repository context for implementation generation.",
+      "Generating implementation patch with model ai/test-model.",
+      "Applying implementation patch in worker container coding-factory-issue-123.",
+      "Collecting git diff summary.",
+      "Removing worker container coding-factory-issue-123.",
+      "Publishing issue branch coding-factory/issue-123.",
+      "Opening pull request for issue #123.",
+    ]);
     expect(output).toHaveBeenCalledWith(
       "Coding Factory pull request opened successfully.",
     );
