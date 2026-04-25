@@ -6,9 +6,24 @@ import type { RepositoryContext } from "../git/repository.js";
 import { getRequirementDocumentPath } from "../requirements/document.js";
 
 export const DEFAULT_WORKER_IMAGE = "coding-factory-worker:latest";
+export const DEFAULT_DOCKER_STARTUP_TIMEOUT_MS = 60_000;
+export const DEFAULT_DOCKER_POLL_INTERVAL_MS = 1_000;
 
 export interface WorkerConfig {
   workerImage: string;
+}
+
+export interface DockerStartupOptions {
+  logProgress?: (message: string) => void;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}
+
+export interface DockerStartupDependencies {
+  runDocker?: DockerRunner;
+  openDockerDesktop?: () => void;
+  sleep?: (milliseconds: number) => Promise<void>;
+  platform?: NodeJS.Platform;
 }
 
 export interface StartWorkerContainerRequest {
@@ -33,6 +48,9 @@ export type WorkerContainerStarter = (
 
 export type WorkerImageEnsurer = (workerImage: string) => void;
 export type WorkerContainerRemover = (containerName: string) => void;
+export type DockerStartupEnsurer = (
+  options?: DockerStartupOptions,
+) => Promise<void>;
 
 export class WorkerContainerError extends Error {
   constructor(message: string) {
@@ -53,6 +71,64 @@ export function resolveWorkerConfig(
 
 export function getWorkerContainerName(issueNumber: number): string {
   return `coding-factory-issue-${issueNumber}`;
+}
+
+export async function ensureDockerReadyAtStartup(
+  options: DockerStartupOptions = {},
+  dependencies: DockerStartupDependencies = {},
+): Promise<void> {
+  const {
+    logProgress = noopProgressLogger,
+    timeoutMs = DEFAULT_DOCKER_STARTUP_TIMEOUT_MS,
+    pollIntervalMs = DEFAULT_DOCKER_POLL_INTERVAL_MS,
+  } = options;
+  const runDocker = dependencies.runDocker ?? defaultDockerRunner;
+  const openDockerDesktop = dependencies.openDockerDesktop ?? defaultOpenDockerDesktop;
+  const sleep = dependencies.sleep ?? defaultSleep;
+  const platform = dependencies.platform ?? process.platform;
+
+  logProgress("Checking Docker availability.");
+
+  if (isDockerReady(runDocker)) {
+    logProgress("Docker is already running.");
+    return;
+  }
+
+  if (platform !== "darwin") {
+    throw new WorkerContainerError(
+      "Docker is not available. Start Docker and try again.",
+    );
+  }
+
+  logProgress("Docker is not running; starting Docker Desktop.");
+
+  try {
+    openDockerDesktop();
+  } catch (error) {
+    const message = extractDockerErrorMessage(error)
+      ?? "Unable to launch Docker Desktop.";
+
+    throw new WorkerContainerError(
+      `Docker Desktop could not be started automatically: ${message} Install or launch Docker Desktop manually and try again.`,
+    );
+  }
+
+  logProgress("Waiting for Docker to become ready.");
+
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    await sleep(pollIntervalMs);
+
+    if (isDockerReady(runDocker)) {
+      logProgress("Docker is ready.");
+      return;
+    }
+  }
+
+  throw new WorkerContainerError(
+    `Docker Desktop did not become ready within ${Math.ceil(timeoutMs / 1000)} seconds. Launch Docker Desktop manually and try again.`,
+  );
 }
 
 export function startWorkerContainer(
@@ -151,6 +227,13 @@ export function defaultDockerRunner(args: string[]): string {
   });
 }
 
+export function defaultOpenDockerDesktop(): void {
+  execFileSync("open", ["-a", "Docker"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
 function getWorkerDockerfilePath(): string {
   return join(getProjectRoot(), "worker", "Dockerfile");
 }
@@ -161,6 +244,15 @@ function getWorkerBuildContextPath(): string {
 
 function getProjectRoot(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+}
+
+function isDockerReady(runDocker: DockerRunner): boolean {
+  try {
+    runDocker(["info"]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function runRequiredDocker(
@@ -209,4 +301,14 @@ function readBufferString(record: Record<string, unknown>, key: string): string 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function defaultSleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+function noopProgressLogger(message: string): void {
+  void message;
 }

@@ -1,9 +1,11 @@
 import { Command, InvalidArgumentError } from "commander";
 import {
+  type DockerStartupEnsurer,
   WorkerContainerError,
   type WorkerContainerRemover,
   type WorkerContainerStarter,
   type WorkerImageEnsurer,
+  ensureDockerReadyAtStartup,
   ensureWorkerImage,
   removeWorkerContainer,
   resolveWorkerConfig,
@@ -103,6 +105,7 @@ export interface IssueCommandDependencies {
   publishIssueBranch?: IssueBranchPublisher;
   createPullRequest?: PullRequestCreator;
   logProgress?: ProgressLogger;
+  ensureDockerReadyAtStartup?: DockerStartupEnsurer;
 }
 
 export function parseIssueNumber(value: string): number {
@@ -167,6 +170,23 @@ export function registerIssueCommand(
       ) => {
         const logProgress = dependencies.logProgress ?? defaultProgressLogger;
         let repository: RepositoryContext;
+
+        try {
+          await (
+            dependencies.ensureDockerReadyAtStartup ??
+            ensureDockerReadyAtStartup
+          )({
+            logProgress,
+          });
+        } catch (error) {
+          const message =
+            error instanceof WorkerContainerError || error instanceof Error
+              ? error.message
+              : "Unable to verify Docker availability.";
+
+          command.error(`Docker startup failed: ${message}`);
+          return;
+        }
 
         logProgress("Validating git repository context.");
 
@@ -364,8 +384,7 @@ export function registerIssueCommand(
           };
         } catch (error) {
           const message =
-            error instanceof RequirementDocumentError ||
-            error instanceof Error
+            error instanceof RequirementDocumentError || error instanceof Error
               ? error.message
               : "Unable to write requirement document.";
 
@@ -419,7 +438,9 @@ export function registerIssueCommand(
         let cleanupError: string | undefined;
 
         try {
-          logProgress("Collecting repository context for implementation generation.");
+          logProgress(
+            "Collecting repository context for implementation generation.",
+          );
 
           const repoSummary = (
             dependencies.collectRepoSummary ?? collectRepoSummary
@@ -465,7 +486,9 @@ export function registerIssueCommand(
         } catch (error) {
           const message = getImplementationErrorMessage(error);
 
-          logProgress(`Removing worker container ${workerContainer.containerName}.`);
+          logProgress(
+            `Removing worker container ${workerContainer.containerName}.`,
+          );
 
           cleanupError = cleanupWorkerContainer(
             workerContainer.containerName,
@@ -480,7 +503,9 @@ export function registerIssueCommand(
           return;
         }
 
-        logProgress(`Removing worker container ${workerContainer.containerName}.`);
+        logProgress(
+          `Removing worker container ${workerContainer.containerName}.`,
+        );
 
         cleanupError = cleanupWorkerContainer(
           workerContainer.containerName,

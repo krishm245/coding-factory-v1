@@ -113,6 +113,12 @@ function createRequirementDependencies(exists = true) {
   };
 }
 
+function createDockerStartupDependency() {
+  return {
+    ensureDockerReadyAtStartup: vi.fn(async () => undefined),
+  };
+}
+
 function findJsonLog(calls: unknown[][]): string {
   const message = calls
     .map((call) => call[0])
@@ -174,8 +180,15 @@ describe("issue command", () => {
     const startWorkerContainer = vi.fn(() => workerContainer);
     const publishIssueBranch = vi.fn(() => publishResult);
     const createPullRequest = vi.fn(() => pullRequest);
+    const ensureDockerReadyAtStartup = vi.fn(async (options?: {
+      logProgress?: (message: string) => void;
+    }) => {
+      options?.logProgress?.("Checking Docker availability.");
+      options?.logProgress?.("Docker is already running.");
+    });
     const logProgress = vi.fn();
     const program = createProgram({
+      ensureDockerReadyAtStartup,
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue,
       generateRequirementMarkdown,
@@ -220,6 +233,8 @@ describe("issue command", () => {
     expect(publishIssueBranch).not.toHaveBeenCalled();
     expect(createPullRequest).not.toHaveBeenCalled();
     expect(progressMessages(logProgress)).toEqual([
+      "Checking Docker availability.",
+      "Docker is already running.",
       "Validating git repository context.",
       "Resolving model, MCP, and worker configuration.",
       "Fetching GitHub issue #123 from owner/repo using Docker MCP profile test-profile.",
@@ -283,6 +298,7 @@ describe("issue command", () => {
       mcpProfile: "coding_factory",
     }));
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue,
       generateRequirementMarkdown: async () => requirementMarkdown,
@@ -311,6 +327,7 @@ describe("issue command", () => {
       mcpProfile: "env-profile",
     }));
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue,
       generateRequirementMarkdown: async () => requirementMarkdown,
@@ -333,6 +350,7 @@ describe("issue command", () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     const fetchGitHubIssue = vi.fn(() => githubIssue);
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue,
       generateRequirementMarkdown: async () => requirementMarkdown,
@@ -365,6 +383,7 @@ describe("issue command", () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     const generateRequirementMarkdown = vi.fn(async () => requirementMarkdown);
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       generateRequirementMarkdown,
@@ -386,6 +405,7 @@ describe("issue command", () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     const generateRequirementMarkdown = vi.fn(async () => requirementMarkdown);
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       generateRequirementMarkdown,
@@ -417,8 +437,15 @@ describe("issue command", () => {
     const removeWorkerContainer = vi.fn();
     const publishIssueBranch = vi.fn(() => publishResult);
     const createPullRequest = vi.fn(() => pullRequest);
+    const ensureDockerReadyAtStartup = vi.fn(async (options?: {
+      logProgress?: (message: string) => void;
+    }) => {
+      options?.logProgress?.("Checking Docker availability.");
+      options?.logProgress?.("Docker is already running.");
+    });
     const logProgress = vi.fn();
     const program = createProgram({
+      ensureDockerReadyAtStartup,
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch,
@@ -492,6 +519,8 @@ describe("issue command", () => {
       title: "Implement issue #123: Add Docker MCP issue fetching",
     });
     expect(progressMessages(logProgress)).toEqual([
+      "Checking Docker availability.",
+      "Docker is already running.",
       "Validating git repository context.",
       "Resolving model, MCP, and worker configuration.",
       "Fetching GitHub issue #123 from owner/repo using Docker MCP profile coding_factory.",
@@ -538,6 +567,7 @@ describe("issue command", () => {
     const implementationDependencies = createImplementationDependencies();
     const publishDependencies = createPublishDependencies();
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => ({
@@ -590,6 +620,7 @@ describe("issue command", () => {
     const implementationDependencies = createImplementationDependencies();
     const publishDependencies = createPublishDependencies();
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
@@ -635,6 +666,7 @@ describe("issue command", () => {
     const implementationDependencies = createImplementationDependencies();
     const publishDependencies = createPublishDependencies();
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
@@ -665,6 +697,7 @@ describe("issue command", () => {
     const removeWorkerContainer = vi.fn();
     const createPullRequest = vi.fn(() => pullRequest);
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
@@ -710,6 +743,7 @@ describe("issue command", () => {
   it("fails after publishing when pull request creation fails", async () => {
     const publishIssueBranch = vi.fn(() => publishResult);
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
@@ -778,6 +812,7 @@ describe("issue command", () => {
   it("fails when repository validation fails", async () => {
     const fetchGitHubIssue = vi.fn(() => githubIssue);
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => {
         throw new RepositoryValidationError("Current directory is not inside a git repository.");
       },
@@ -811,6 +846,7 @@ describe("issue command", () => {
 
   it("fails when GitHub issue fetching fails", async () => {
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => {
         throw new Error("Issue 123 was not found.");
@@ -844,6 +880,7 @@ describe("issue command", () => {
   it("fails when issue branch setup fails", async () => {
     const startWorkerContainer = vi.fn(() => workerContainer);
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => {
@@ -880,6 +917,7 @@ describe("issue command", () => {
   it("fails before GitHub fetching when no model is configured", async () => {
     const fetchGitHubIssue = vi.fn(() => githubIssue);
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue,
     });
@@ -910,6 +948,7 @@ describe("issue command", () => {
 
   it("fails when requirement markdown generation fails", async () => {
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       generateRequirementMarkdown: () => {
@@ -943,6 +982,7 @@ describe("issue command", () => {
   it("removes the worker container when implementation patch generation fails", async () => {
     const removeWorkerContainer = vi.fn();
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
@@ -983,6 +1023,7 @@ describe("issue command", () => {
   it("removes the worker container when implementation patch application fails", async () => {
     const removeWorkerContainer = vi.fn();
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
@@ -1023,6 +1064,7 @@ describe("issue command", () => {
 
   it("fails when worker container startup fails", async () => {
     const program = createProgram({
+      ...createDockerStartupDependency(),
       loadRepositoryContext: () => repositoryContext,
       fetchGitHubIssue: () => githubIssue,
       ensureIssueBranch: () => issueBranch,
@@ -1053,6 +1095,40 @@ describe("issue command", () => {
     ).rejects.toMatchObject({
       code: "commander.error",
       message: "Worker container startup failed: Container already exists.",
+    });
+  });
+
+  it("fails clearly when Docker startup fails", async () => {
+    const program = createProgram({
+      ensureDockerReadyAtStartup: async () => {
+        throw new Error("Docker Desktop did not become ready within 60 seconds. Launch Docker Desktop manually and try again.");
+      },
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      generateRequirementMarkdown: async () => requirementMarkdown,
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(
+        ["node", "coding-factory", "issue", "123", "--dry-run", "--model", "ai/test-model"],
+        { from: "node" },
+      ),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message:
+        "Docker startup failed: Docker Desktop did not become ready within 60 seconds. Launch Docker Desktop manually and try again.",
     });
   });
 });

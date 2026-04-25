@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_DOCKER_POLL_INTERVAL_MS,
+  DEFAULT_DOCKER_STARTUP_TIMEOUT_MS,
   DEFAULT_WORKER_IMAGE,
   WorkerContainerError,
+  ensureDockerReadyAtStartup,
   ensureWorkerImage,
   getWorkerContainerName,
   removeWorkerContainer,
@@ -48,6 +51,145 @@ describe("resolveWorkerConfig", () => {
 describe("getWorkerContainerName", () => {
   it("uses the issue number in the container name", () => {
     expect(getWorkerContainerName(123)).toBe("coding-factory-issue-123");
+  });
+});
+
+describe("ensureDockerReadyAtStartup", () => {
+  it("returns immediately when Docker is already running", async () => {
+    const runDocker = vi.fn(() => "Server Version: 28.0.0");
+    const openDockerDesktop = vi.fn();
+    const logProgress = vi.fn();
+
+    await ensureDockerReadyAtStartup(
+      {
+        logProgress,
+      },
+      {
+        runDocker,
+        openDockerDesktop,
+        platform: "darwin",
+      },
+    );
+
+    expect(runDocker).toHaveBeenCalledTimes(1);
+    expect(runDocker).toHaveBeenCalledWith(["info"]);
+    expect(openDockerDesktop).not.toHaveBeenCalled();
+    expect(logProgress.mock.calls).toEqual([
+      ["Checking Docker availability."],
+      ["Docker is already running."],
+    ]);
+  });
+
+  it("starts Docker Desktop on macOS and waits until Docker is ready", async () => {
+    const runDocker = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("Docker Desktop is stopped");
+      })
+      .mockImplementationOnce(() => {
+        throw new Error("Docker still starting");
+      })
+      .mockImplementationOnce(() => "Server Version: 28.0.0");
+    const openDockerDesktop = vi.fn();
+    const sleep = vi.fn(async () => undefined);
+    const logProgress = vi.fn();
+
+    await ensureDockerReadyAtStartup(
+      {
+        logProgress,
+        timeoutMs: 5_000,
+        pollIntervalMs: 10,
+      },
+      {
+        runDocker,
+        openDockerDesktop,
+        sleep,
+        platform: "darwin",
+      },
+    );
+
+    expect(openDockerDesktop).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(10);
+    expect(logProgress.mock.calls).toEqual([
+      ["Checking Docker availability."],
+      ["Docker is not running; starting Docker Desktop."],
+      ["Waiting for Docker to become ready."],
+      ["Docker is ready."],
+    ]);
+  });
+
+  it("fails clearly when Docker Desktop cannot be started automatically", async () => {
+    await expect(
+      ensureDockerReadyAtStartup(
+        {},
+        {
+          runDocker: () => {
+            throw new Error("Cannot connect to the Docker daemon");
+          },
+          openDockerDesktop: () => {
+            throw new Error("The application named Docker could not be found.");
+          },
+          platform: "darwin",
+        },
+      ),
+    ).rejects.toThrow(
+      new WorkerContainerError(
+        "Docker Desktop could not be started automatically: The application named Docker could not be found. Install or launch Docker Desktop manually and try again.",
+      ),
+    );
+  });
+
+  it("fails clearly when Docker does not become ready before the timeout", async () => {
+    const sleep = vi.fn(async () => undefined);
+
+    await expect(
+      ensureDockerReadyAtStartup(
+        {
+          timeoutMs: 0,
+          pollIntervalMs: 1,
+        },
+        {
+          runDocker: () => {
+            throw new Error("Docker daemon unavailable");
+          },
+          openDockerDesktop: vi.fn(),
+          sleep,
+          platform: "darwin",
+        },
+      ),
+    ).rejects.toThrow(
+      new WorkerContainerError(
+        "Docker Desktop did not become ready within 0 seconds. Launch Docker Desktop manually and try again.",
+      ),
+    );
+
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("fails clearly on non-macOS when Docker is unavailable", async () => {
+    const openDockerDesktop = vi.fn();
+
+    await expect(
+      ensureDockerReadyAtStartup(
+        {},
+        {
+          runDocker: () => {
+            throw new Error("Docker daemon unavailable");
+          },
+          openDockerDesktop,
+          platform: "linux",
+        },
+      ),
+    ).rejects.toThrow(
+      new WorkerContainerError("Docker is not available. Start Docker and try again."),
+    );
+
+    expect(openDockerDesktop).not.toHaveBeenCalled();
+  });
+
+  it("uses the default startup timing constants", async () => {
+    expect(DEFAULT_DOCKER_STARTUP_TIMEOUT_MS).toBe(60_000);
+    expect(DEFAULT_DOCKER_POLL_INTERVAL_MS).toBe(1_000);
   });
 });
 
