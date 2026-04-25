@@ -1,24 +1,27 @@
-# Issue 3: Add log at the start of the coding factory run
+# Issue 3: Add a section to the readme.md file that lists the skills the agent has
 
 ## Summary
-The system needs to output a log message to the console immediately when the coding factory process begins execution.
+A new section must be added to the `README.md` file to explicitly list the skills possessed by the agent associated with this repository.
 
 ## Requirements
-*   The application must include a console log statement at the very beginning of the coding factory execution sequence.
-*   The content of this log message must clearly indicate that the coding factory is starting.
+*   The `README.md` file must be updated to include a new section.
+*   This new section must be placed at the end of the existing content in `README.md`.
+*   The content of this section must list the agent's capabilities or skills.
 
 ## Acceptance Criteria
-*   When the coding factory script/process is initiated, a visible message must appear in the console output.
-*   The message must explicitly state that the "coding factory is starting."
+*   The `README.md` file is successfully modified.
+*   A clearly demarcated section exists at the end of the file titled or clearly indicating the agent's skills.
+*   The listed skills accurately reflect the agent's intended capabilities within the context of the repository.
 
 ## Test Expectations
-1.  Execute the coding factory process from the command line or trigger the relevant entry point.
-2.  Verify that the first output line in the console log matches the expected starting message.
+1.  Verify that the `README.md` file contains a new section at the bottom.
+2.  Inspect the content of the new section to ensure it lists the agent's skills.
+3.  Confirm that the structure and formatting of the new section are consistent with the rest of the `README.md`.
 
 ## Out of Scope
-*   Logging details about the configuration or parameters of the factory run.
-*   Implementing any complex logging frameworks; a simple `console.log` is sufficient.
+*   Defining or implementing the agent's skills; this task is purely documentation-related.
+*   Modifying any other part of the repository besides the `README.md`.
 
 ## Implementation Notes
-*   The logging statement should be placed in the primary initialization function or the main execution block of the coding factory logic.
-*   **Assumption:** The environment supports standard JavaScript/Node.js `console.log` functionality. If the factory runs in a non-standard environment, this assumption may need re-evaluation.
+*   **Assumption:** The specific skills to be listed are currently unknown. The developer must consult the project context or stakeholders to determine the definitive list of skills before implementation. If no definitive list is available, a placeholder list should be used, and this assumption must be documented in the commit message.
+*   The section should be clearly formatted (e.g., using bullet points or a dedicated heading).
