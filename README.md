@@ -9,17 +9,15 @@ Use a GitHub commit SHA so installs are reproducible.
 ### Global install
 
 ```sh
-npm install -g github:krishm245/coding-factory-v1#<commit-sha>
+npm install -g github:krishm245/coding-factory-v1#cf2d13047a8c9e64ed230e23458fb37865de4413
 coding-factory issue 2 --model <model>
 ```
 
 ### One-shot execution
 
 ```sh
-pnpm dlx github:krishm245/coding-factory-v1#<commit-sha> issue 2 --model <model>
+pnpm dlx github:krishm245/coding-factory-v1#cf2d13047a8c9e64ed230e23458fb37865de4413 issue 2 --model <model>
 ```
-
-Replace `<commit-sha>` with the exact commit you want to run.
 
 ## Run From Any Repo
 
