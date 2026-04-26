@@ -78,6 +78,33 @@ describe("collectRepoSummary", () => {
       ],
     });
   });
+
+  it("includes files referenced by the requirement markdown", () => {
+    const repository = createRepository();
+    mkdirSync(join(repository.root, "requirements"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(repository.root, "requirements", "issue-123.md"),
+      "# Issue 123\n\nUpdate `README.md` with setup guidance.\n",
+      "utf8",
+    );
+    writeFileSync(
+      join(repository.root, "README.md"),
+      "# Repo\n",
+      "utf8",
+    );
+
+    expect(collectRepoSummary({
+      issueNumber: 123,
+      repository,
+    }).files).toEqual([
+      {
+        path: "README.md",
+        content: "# Repo\n",
+      },
+    ]);
+  });
 });
 
 function createRepository(): RepositoryContext {

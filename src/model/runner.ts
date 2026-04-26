@@ -165,6 +165,7 @@ export function buildImplementationPatchMessages(
         "The patch must end with a trailing newline.",
         "Do not delete files.",
         "Do not include binary patches.",
+        "When modifying a file that already exists in the repository tree, do not mark it as a new file.",
       ].join(" "),
     },
     {
@@ -287,14 +288,10 @@ function normalizeSimpleUnifiedDiff(patch: string): string {
     return patch;
   }
 
-  const oldPath = oldHeader.slice(4).trim();
-  const newPath = newHeader.slice(4).trim();
+  const oldPath = normalizeSimpleDiffPath(oldHeader.slice(4).trim(), "a/");
+  const newPath = normalizeSimpleDiffPath(newHeader.slice(4).trim(), "b/");
 
-  if (!oldPath || !newPath || oldPath === "/dev/null" || newPath === "/dev/null") {
-    return patch;
-  }
-
-  if (oldPath !== newPath) {
+  if (!oldPath || !newPath) {
     return patch;
   }
 
@@ -304,14 +301,35 @@ function normalizeSimpleUnifiedDiff(patch: string): string {
     return patch;
   }
 
+  if (oldPath !== "/dev/null" && newPath !== "/dev/null" && oldPath !== newPath) {
+    return patch;
+  }
+
+  if (oldPath === "/dev/null") {
+    return [
+      `diff --git a/${newPath} b/${newPath}`,
+      "new file mode 100644",
+      "index 0000000..0000000",
+      "--- /dev/null",
+      `+++ b/${newPath}`,
+      ...body,
+    ].join("\n");
+  }
+
   return [
     `diff --git a/${oldPath} b/${newPath}`,
-    "new file mode 100644",
-    "index 0000000..0000000",
-    "--- /dev/null",
-    `+++ b/${newPath}`,
+    `--- a/${oldPath}`,
+    newPath === "/dev/null" ? "+++ /dev/null" : `+++ b/${newPath}`,
     ...body,
   ].join("\n");
+}
+
+function normalizeSimpleDiffPath(path: string, prefix: "a/" | "b/"): string {
+  if (path === "/dev/null") {
+    return path;
+  }
+
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

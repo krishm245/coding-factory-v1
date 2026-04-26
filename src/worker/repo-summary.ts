@@ -67,7 +67,7 @@ export function collectRepoSummary(request: RepoSummaryRequest): RepoSummary {
   ).absolutePath;
   const requirementMarkdown = readTextFile(requirementPath);
   const tree = listRepoFiles(request.repository.root).slice(0, MAX_TREE_ENTRIES);
-  const selectedFiles = selectContextFiles(tree);
+  const selectedFiles = selectContextFiles(tree, requirementMarkdown);
   const files: RepoSummary["files"] = [];
   let totalBytes = requirementMarkdown.length;
 
@@ -131,10 +131,11 @@ function visitDirectory(root: string, currentDirectory: string, files: string[])
   }
 }
 
-function selectContextFiles(tree: string[]): string[] {
+function selectContextFiles(tree: string[], requirementMarkdown: string): string[] {
   const priority = tree.filter((path) => PRIORITY_FILES.has(path));
+  const referenced = tree.filter((path) => requirementMarkdown.includes(path));
   const source = tree.filter((path) => path.startsWith("src/") || path.startsWith("test/"));
-  return [...new Set([...priority, ...source])];
+  return [...new Set([...priority, ...referenced, ...source])];
 }
 
 function isCandidateTextFile(path: string): boolean {

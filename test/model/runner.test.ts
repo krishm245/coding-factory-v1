@@ -53,6 +53,23 @@ const simpleReadmePatch = [
 ].join("\n");
 const normalizedReadmePatch = [
   "diff --git a/README.md b/README.md",
+  "--- a/README.md",
+  "+++ b/README.md",
+  "@@ -0,0 +1,3 @@",
+  "+# Coding Factory CLI",
+  "+",
+  "+A local-LLM coding factory CLI.",
+].join("\n");
+const simpleNewFilePatch = [
+  "--- /dev/null",
+  "+++ README.md",
+  "@@ -0,0 +1,3 @@",
+  "+# Coding Factory CLI",
+  "+",
+  "+A local-LLM coding factory CLI.",
+].join("\n");
+const normalizedNewFilePatch = [
+  "diff --git a/README.md b/README.md",
   "new file mode 100644",
   "index 0000000..0000000",
   "--- /dev/null",
@@ -169,7 +186,7 @@ describe("parseChatCompletionPatch", () => {
     })).toBe(patch);
   });
 
-  it("normalizes simple new-file diffs into git-style diffs", () => {
+  it("normalizes simple edit diffs into git-style diffs", () => {
     expect(parseChatCompletionPatch({
       choices: [
         {
@@ -179,6 +196,18 @@ describe("parseChatCompletionPatch", () => {
         },
       ],
     })).toBe(normalizedReadmePatch);
+  });
+
+  it("normalizes explicit simple new-file diffs into git-style diffs", () => {
+    expect(parseChatCompletionPatch({
+      choices: [
+        {
+          message: {
+            content: simpleNewFilePatch,
+          },
+        },
+      ],
+    })).toBe(normalizedNewFilePatch);
   });
 
   it("fails when the model does not return a patch", () => {
@@ -211,6 +240,9 @@ describe("buildImplementationPatchMessages", () => {
     );
     expect(messages[0]?.content).toContain(
       "The patch must end with a trailing newline.",
+    );
+    expect(messages[0]?.content).toContain(
+      "do not mark it as a new file",
     );
   });
 });
