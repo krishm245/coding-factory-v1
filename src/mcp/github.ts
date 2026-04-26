@@ -108,6 +108,7 @@ export function createPullRequestViaDockerMcp(
   request: CreatePullRequestRequest,
 ): CreatedPullRequest {
   const { base, body, head, mcpProfile, repository, title } = request;
+  const qualifiedHead = qualifyPullRequestHead(repository, head);
 
   try {
     const stdout = execFileSync(
@@ -122,7 +123,7 @@ export function createPullRequestViaDockerMcp(
         `owner=${repository.owner}`,
         `repo=${repository.repo}`,
         `base=${base}`,
-        `head=${head}`,
+        `head=${qualifiedHead}`,
         `title=${title}`,
         `body=${body}`,
       ],
@@ -144,9 +145,19 @@ export function createPullRequestViaDockerMcp(
     );
 
     throw new GitHubIssueFetchError(
-      explainCreatePullRequestToolError(message, mcpProfile),
+      explainCreatePullRequestToolError(message, mcpProfile, {
+        base,
+        head: qualifiedHead,
+      }),
     );
   }
+}
+
+export function qualifyPullRequestHead(
+  repository: GitHubRepository,
+  head: string,
+): string {
+  return head.includes(":") ? head : `${repository.owner}:${head}`;
 }
 
 export function parseDockerMcpJsonOutput(output: string): unknown {
@@ -247,9 +258,21 @@ function unwrapPullRequestPayload(payload: Record<string, unknown>): Record<stri
   return payload;
 }
 
-export function explainCreatePullRequestToolError(message: string, mcpProfile: string): string {
+export function explainCreatePullRequestToolError(
+  message: string,
+  mcpProfile: string,
+  refs?: { base: string; head: string },
+): string {
   if (!message.includes(`unknown tool "${CREATE_PULL_REQUEST_TOOL}"`)) {
-    return message;
+    if (!message.includes("not all refs are readable") || !refs) {
+      return message;
+    }
+
+    return [
+      message,
+      `Pull request refs used: base=${refs.base}, head=${refs.head}.`,
+      "Verify that the GitHub MCP token can read the private repository and the pushed branch refs.",
+    ].join(" ");
   }
 
   return [

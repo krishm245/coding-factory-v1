@@ -531,7 +531,7 @@ describe("issue command", () => {
     expect(createPullRequest).toHaveBeenCalledWith({
       base: "develop",
       body: expect.stringContaining("Closes #123"),
-      head: "coding-factory/issue-123",
+      head: "owner:coding-factory/issue-123",
       mcpProfile: "coding_factory",
       repository: repositoryContext.github,
       title: "Implement issue #123: Add Docker MCP issue fetching",

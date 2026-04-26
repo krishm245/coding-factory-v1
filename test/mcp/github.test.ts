@@ -5,6 +5,7 @@ import {
   normalizeCreatedPullRequest,
   normalizeGitHubIssue,
   parseDockerMcpJsonOutput,
+  qualifyPullRequestHead,
   resolveMcpProfile,
 } from "../../src/mcp/github.js";
 
@@ -161,6 +162,20 @@ describe("normalizeCreatedPullRequest", () => {
   });
 });
 
+describe("qualifyPullRequestHead", () => {
+  it("qualifies bare branch names with the repository owner", () => {
+    expect(qualifyPullRequestHead(request.repository, "coding-factory/issue-123")).toBe(
+      "owner:coding-factory/issue-123",
+    );
+  });
+
+  it("keeps already-qualified head refs unchanged", () => {
+    expect(qualifyPullRequestHead(request.repository, "other-owner:feature")).toBe(
+      "other-owner:feature",
+    );
+  });
+});
+
 describe("explainCreatePullRequestToolError", () => {
   it("turns unknown create_pull_request tool errors into actionable configuration guidance", () => {
     expect(explainCreatePullRequestToolError(
@@ -180,5 +195,22 @@ describe("explainCreatePullRequestToolError", () => {
       "Validation Failed: pull request already exists.",
       "coding_factory",
     )).toBe("Validation Failed: pull request already exists.");
+  });
+
+  it("adds ref context for unreadable pull request refs", () => {
+    expect(explainCreatePullRequestToolError(
+      "Validation Failed: not all refs are readable",
+      "coding_factory",
+      {
+        base: "main",
+        head: "owner:coding-factory/issue-123",
+      },
+    )).toBe(
+      [
+        "Validation Failed: not all refs are readable",
+        "Pull request refs used: base=main, head=owner:coding-factory/issue-123.",
+        "Verify that the GitHub MCP token can read the private repository and the pushed branch refs.",
+      ].join(" "),
+    );
   });
 });
