@@ -30,6 +30,12 @@ import {
   type IssueBranchPublisher,
   GitPublishError,
   publishIssueBranch,
+  resolveRemoteDefaultBranch,
+  type RemoteBranchVerifier,
+  type RemoteBranchWaiter,
+  type RemoteDefaultBranchResolver,
+  verifyRemoteBranchExists,
+  waitForRemoteBranch,
 } from "../git/publish.js";
 import {
   GitHubIssueFetchError,
@@ -104,6 +110,9 @@ export interface IssueCommandDependencies {
   removeWorkerContainer?: WorkerContainerRemover;
   publishIssueBranch?: IssueBranchPublisher;
   createPullRequest?: PullRequestCreator;
+  resolveRemoteDefaultBranch?: RemoteDefaultBranchResolver;
+  verifyRemoteBranchExists?: RemoteBranchVerifier;
+  waitForRemoteBranch?: RemoteBranchWaiter;
   logProgress?: ProgressLogger;
   ensureDockerReadyAtStartup?: DockerStartupEnsurer;
 }
@@ -545,6 +554,39 @@ export function registerIssueCommand(
           issue,
           requirementPath: requirementDocument.path,
         });
+        let pullRequestBaseBranch: string;
+
+        try {
+          logProgress("Resolving pull request base branch from origin/HEAD.");
+          pullRequestBaseBranch = (
+            dependencies.resolveRemoteDefaultBranch ?? resolveRemoteDefaultBranch
+          )(repository);
+          logProgress(`Verifying remote base branch ${pullRequestBaseBranch}.`);
+          (
+            dependencies.verifyRemoteBranchExists ?? verifyRemoteBranchExists
+          )({
+            branchName: pullRequestBaseBranch,
+            repository,
+          });
+          logProgress(
+            `Waiting for remote branch ${issueBranch.branchName} to become visible on origin.`,
+          );
+          await (
+            dependencies.waitForRemoteBranch ?? waitForRemoteBranch
+          )({
+            branchName: issueBranch.branchName,
+            repository,
+          });
+        } catch (error) {
+          const message =
+            error instanceof GitPublishError || error instanceof Error
+              ? error.message
+              : "Unable to prepare pull request refs.";
+
+          command.error(`Pull request preparation failed: ${message}`);
+          return;
+        }
+
         let pullRequest;
 
         logProgress(`Opening pull request for issue #${issueNumber}.`);
@@ -553,7 +595,7 @@ export function registerIssueCommand(
           pullRequest = (
             dependencies.createPullRequest ?? createPullRequestViaDockerMcp
           )({
-            base: repository.currentBranch,
+            base: pullRequestBaseBranch,
             body: pullRequestContent.body,
             head: issueBranch.branchName,
             mcpProfile,

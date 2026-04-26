@@ -101,6 +101,9 @@ function createImplementationDependencies() {
 function createPublishDependencies() {
   return {
     publishIssueBranch: vi.fn(() => publishResult),
+    resolveRemoteDefaultBranch: vi.fn(() => "main"),
+    verifyRemoteBranchExists: vi.fn(),
+    waitForRemoteBranch: vi.fn(async () => undefined),
     createPullRequest: vi.fn(() => pullRequest),
   };
 }
@@ -436,6 +439,9 @@ describe("issue command", () => {
     const collectGitDiffSummary = vi.fn(() => diffSummary);
     const removeWorkerContainer = vi.fn();
     const publishIssueBranch = vi.fn(() => publishResult);
+    const resolveRemoteDefaultBranch = vi.fn(() => "develop");
+    const verifyRemoteBranchExists = vi.fn();
+    const waitForRemoteBranch = vi.fn(async () => undefined);
     const createPullRequest = vi.fn(() => pullRequest);
     const ensureDockerReadyAtStartup = vi.fn(async (options?: {
       logProgress?: (message: string) => void;
@@ -460,6 +466,9 @@ describe("issue command", () => {
       collectGitDiffSummary,
       removeWorkerContainer,
       publishIssueBranch,
+      resolveRemoteDefaultBranch,
+      verifyRemoteBranchExists,
+      waitForRemoteBranch,
       createPullRequest,
       logProgress,
     });
@@ -510,8 +519,17 @@ describe("issue command", () => {
       commitMessage: "feat: implement issue 123",
       repository: repositoryContext,
     });
+    expect(resolveRemoteDefaultBranch).toHaveBeenCalledWith(repositoryContext);
+    expect(verifyRemoteBranchExists).toHaveBeenCalledWith({
+      branchName: "develop",
+      repository: repositoryContext,
+    });
+    expect(waitForRemoteBranch).toHaveBeenCalledWith({
+      branchName: "coding-factory/issue-123",
+      repository: repositoryContext,
+    });
     expect(createPullRequest).toHaveBeenCalledWith({
-      base: "main",
+      base: "develop",
       body: expect.stringContaining("Closes #123"),
       head: "coding-factory/issue-123",
       mcpProfile: "coding_factory",
@@ -535,6 +553,9 @@ describe("issue command", () => {
       "Collecting git diff summary.",
       "Removing worker container coding-factory-issue-123.",
       "Publishing issue branch coding-factory/issue-123.",
+      "Resolving pull request base branch from origin/HEAD.",
+      "Verifying remote base branch develop.",
+      "Waiting for remote branch coding-factory/issue-123 to become visible on origin.",
       "Opening pull request for issue #123.",
     ]);
     expect(output).toHaveBeenCalledWith(
@@ -754,6 +775,9 @@ describe("issue command", () => {
       createPullRequest: () => {
         throw new Error("Validation Failed: pull request already exists.");
       },
+      resolveRemoteDefaultBranch: () => "main",
+      verifyRemoteBranchExists: vi.fn(),
+      waitForRemoteBranch: async () => undefined,
     });
     const issueCommand = program.commands.find(
       (command) => command.name() === "issue",
@@ -783,6 +807,53 @@ describe("issue command", () => {
       commitMessage: "feat: implement issue 123",
       repository: repositoryContext,
     });
+  });
+
+  it("fails clearly when the pushed branch is not visible on the remote", async () => {
+    const publishIssueBranch = vi.fn(() => publishResult);
+    const createPullRequest = vi.fn(() => pullRequest);
+    const program = createProgram({
+      ...createDockerStartupDependency(),
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => githubIssue,
+      ensureIssueBranch: () => issueBranch,
+      ...createRequirementDependencies(),
+      startWorkerContainer: () => workerContainer,
+      ...createImplementationDependencies(),
+      publishIssueBranch,
+      resolveRemoteDefaultBranch: () => "main",
+      verifyRemoteBranchExists: vi.fn(),
+      waitForRemoteBranch: async () => {
+        throw new Error(
+          "Remote branch origin/coding-factory/issue-123 was not visible after 10 seconds.",
+        );
+      },
+      createPullRequest,
+    });
+    const issueCommand = program.commands.find(
+      (command) => command.name() === "issue",
+    );
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+    });
+    issueCommand?.exitOverride();
+    issueCommand?.configureOutput({
+      writeErr: () => undefined,
+    });
+
+    await expect(
+      program.parseAsync(
+        ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+        { from: "node" },
+      ),
+    ).rejects.toMatchObject({
+      code: "commander.error",
+      message:
+        "Pull request preparation failed: Remote branch origin/coding-factory/issue-123 was not visible after 10 seconds.",
+    });
+    expect(createPullRequest).not.toHaveBeenCalled();
   });
 
   it("throws for invalid issue arguments", async () => {
