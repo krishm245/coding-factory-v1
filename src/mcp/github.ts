@@ -15,6 +15,7 @@ export interface CreatePullRequestRequest {
   base: string;
   body: string;
   head: string;
+  headRepository?: GitHubRepository;
   mcpProfile: string;
   repository: GitHubRepository;
   title: string;
@@ -107,8 +108,20 @@ export function fetchGitHubIssueViaDockerMcp(
 export function createPullRequestViaDockerMcp(
   request: CreatePullRequestRequest,
 ): CreatedPullRequest {
-  const { base, body, head, mcpProfile, repository, title } = request;
-  const qualifiedHead = qualifyPullRequestHead(repository, head);
+  const {
+    base,
+    body,
+    head,
+    headRepository,
+    mcpProfile,
+    repository,
+    title,
+  } = request;
+  const qualifiedHead = qualifyPullRequestHead(
+    repository,
+    headRepository ?? repository,
+    head,
+  );
 
   try {
     const stdout = execFileSync(
@@ -154,10 +167,22 @@ export function createPullRequestViaDockerMcp(
 }
 
 export function qualifyPullRequestHead(
-  repository: GitHubRepository,
+  baseRepository: GitHubRepository,
+  headRepository: GitHubRepository,
   head: string,
 ): string {
-  return head.includes(":") ? head : `${repository.owner}:${head}`;
+  if (head.includes(":")) {
+    return head;
+  }
+
+  if (
+    baseRepository.owner === headRepository.owner
+    && baseRepository.repo === headRepository.repo
+  ) {
+    return head;
+  }
+
+  return `${headRepository.owner}:${head}`;
 }
 
 export function parseDockerMcpJsonOutput(output: string): unknown {

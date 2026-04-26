@@ -163,14 +163,35 @@ describe("normalizeCreatedPullRequest", () => {
 });
 
 describe("qualifyPullRequestHead", () => {
-  it("qualifies bare branch names with the repository owner", () => {
-    expect(qualifyPullRequestHead(request.repository, "coding-factory/issue-123")).toBe(
-      "owner:coding-factory/issue-123",
+  it("keeps bare branch names unqualified for same-repo pull requests", () => {
+    expect(qualifyPullRequestHead(
+      request.repository,
+      request.repository,
+      "coding-factory/issue-123",
+    )).toBe(
+      "coding-factory/issue-123",
+    );
+  });
+
+  it("qualifies bare branch names for cross-repo pull requests", () => {
+    expect(qualifyPullRequestHead(
+      request.repository,
+      {
+        owner: "other-owner",
+        repo: "forked-repo",
+      },
+      "coding-factory/issue-123",
+    )).toBe(
+      "other-owner:coding-factory/issue-123",
     );
   });
 
   it("keeps already-qualified head refs unchanged", () => {
-    expect(qualifyPullRequestHead(request.repository, "other-owner:feature")).toBe(
+    expect(qualifyPullRequestHead(
+      request.repository,
+      request.repository,
+      "other-owner:feature",
+    )).toBe(
       "other-owner:feature",
     );
   });

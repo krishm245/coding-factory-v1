@@ -531,9 +531,10 @@ describe("issue command", () => {
     expect(createPullRequest).toHaveBeenCalledWith({
       base: "develop",
       body: expect.stringContaining("Closes #123"),
-      head: "owner:coding-factory/issue-123",
+      head: "coding-factory/issue-123",
+      headRepository: repositoryContext.github,
       mcpProfile: "coding_factory",
-      repository: repositoryContext.github,
+      repository: githubIssue.repository,
       title: "Implement issue #123: Add Docker MCP issue fetching",
     });
     expect(progressMessages(logProgress)).toEqual([
@@ -577,6 +578,55 @@ describe("issue command", () => {
       },
       publish: publishResult,
       pullRequest,
+    });
+  });
+
+  it("passes separate source and target repositories for cross-repo pull requests", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const createPullRequest = vi.fn(() => pullRequest);
+    const crossRepoIssue: NormalizedGitHubIssue = {
+      ...githubIssue,
+      repository: {
+        owner: "upstream-owner",
+        repo: "upstream-repo",
+      },
+      url: "https://github.com/upstream-owner/upstream-repo/issues/123",
+    };
+    const program = createProgram({
+      ...createDockerStartupDependency(),
+      loadRepositoryContext: () => repositoryContext,
+      fetchGitHubIssue: () => crossRepoIssue,
+      ensureIssueBranch: () => issueBranch,
+      requirementDocumentExists: () => false,
+      generateRequirementMarkdown: async () => requirementMarkdown,
+      writeRequirementDocument: () => requirementWriteResult,
+      ensureWorkerImage: vi.fn(),
+      startWorkerContainer: () => workerContainer,
+      collectRepoSummary: () => repoSummary,
+      generateImplementationPatch: async () => implementationPatch,
+      applyPatch: vi.fn(),
+      collectGitDiffSummary: () => diffSummary,
+      removeWorkerContainer: vi.fn(),
+      publishIssueBranch: () => publishResult,
+      resolveRemoteDefaultBranch: () => "main",
+      verifyRemoteBranchExists: vi.fn(),
+      waitForRemoteBranch: async () => undefined,
+      createPullRequest,
+    });
+
+    await program.parseAsync(
+      ["node", "coding-factory", "issue", "123", "--model", "ai/test-model"],
+      { from: "node" },
+    );
+
+    expect(createPullRequest).toHaveBeenCalledWith({
+      base: "main",
+      body: expect.stringContaining("Closes #123"),
+      head: "coding-factory/issue-123",
+      headRepository: repositoryContext.github,
+      mcpProfile: "coding_factory",
+      repository: crossRepoIssue.repository,
+      title: "Implement issue #123: Add Docker MCP issue fetching",
     });
   });
 

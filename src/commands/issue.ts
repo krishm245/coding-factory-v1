@@ -43,7 +43,6 @@ import {
   type PullRequestCreator,
   createPullRequestViaDockerMcp,
   fetchGitHubIssueViaDockerMcp,
-  qualifyPullRequestHead,
   resolveMcpProfile,
 } from "../mcp/github.js";
 import {
@@ -598,12 +597,10 @@ export function registerIssueCommand(
           )({
             base: pullRequestBaseBranch,
             body: pullRequestContent.body,
-            head: qualifyPullRequestHead(
-              repository.github,
-              issueBranch.branchName,
-            ),
+            head: issueBranch.branchName,
+            headRepository: repository.github,
             mcpProfile,
-            repository: repository.github,
+            repository: issue.repository,
             title: pullRequestContent.title,
           });
         } catch (error) {
