@@ -186,3 +186,93 @@ coding-factory/issue-<number>
 - Docker Model Runner is enabled and reachable through its OpenAI-compatible endpoint.
 - V1 supports repos with `package.json` and a full-suite test script, preferably `test:all` or `test`.
 - PR creation is gated on the full test suite passing.
+
+# Azure + SharePoint + Copilot Studio Secure Internal Assistant
+
+## Summary
+
+Build a Microsoft Entra-authenticated internal web app in Azure that lets approved employees
+browse one approved SharePoint site/library live and chat with an embedded Copilot Studio agent
+about files they are allowed to access. The site uses Entra ID as the primary gate, an app-
+specific Entra security group as a second gate, Conditional Access for org-only policy
+enforcement, and Microsoft Graph delegated access on behalf of the signed-in user so SharePoint
+remains the source of truth for authorization.
+
+## Implementation Changes
+
+- Identity and access
+  - Require Microsoft Entra sign-in for the website.
+  - Restrict app entry to a dedicated Entra security group; block guests and external
+    identities.
+  - Enforce Conditional Access for MFA, managed/compliant device requirements, and org
+    session controls.
+  - Keep the app internet-reachable; do not rely on IP allowlists as the primary control.
+- Azure hosting
+  - Host the web app and backend API on a managed Azure web app/API tier.
+  - Store secrets and app configuration in Azure Key Vault and app settings.
+  - Put source-drive configuration behind a platform-admin-only control path; no self-service
+    source registration in v1.
+- File discovery
+  - The UI performs live browse/search against one approved SharePoint site/library only.
+  - The backend calls Microsoft Graph using the OAuth on-behalf-of flow with the user’s
+    identity.
+  - Show metadata and deep links to SharePoint/Office; do not preview or download files
+    through the app in v1.
+- Agent architecture
+  - Use Copilot Studio, embedded in the website, with SSO from the signed-in site session.
+  - Configure Copilot Studio manual authentication with Microsoft Entra ID for the agent,
+    plus a separate canvas app registration for website SSO.
+  - Implement the agent’s knowledge retrieval through a custom knowledge source using
+    OnKnowledgeRequested, backed by your API.
+  - The API executes live search/retrieval over the approved SharePoint scope with the user’s
+    delegated token and returns only trimmed, citation-ready results.
+  - Do not use a persistent external content index in v1. Fetch metadata/content transiently
+    per request.
+- Answer and data guardrails
+  - Agent answers must be grounded and citation-based only; if evidence is missing, the agent
+    refuses to answer.
+  - Allow the agent to search any file the user can access within the one configured drive/
+    library.
+  - Retain only short-lived chat session context by default; no long-term document corpus or
+    persistent chat history in v1.
+  - Minimize sensitive logging of raw file content.
+
+## Public Interfaces / Key Contracts
+
+- Web app auth contract
+  - Signed-in employee session with Entra ID token for the site.
+  - App access group membership required before rendering file/chat surfaces.
+- Backend API contract
+  - File browse/search endpoints accept only authenticated site users and resolve Graph
+    access via OBO.
+  - Chat retrieval endpoint returns normalized search results for Copilot Studio with title,
+    URL, snippet, and source identifiers suitable for citations.
+- Copilot Studio integration contract
+  - Agent uses Entra manual auth plus website SSO.
+  - Agent knowledge calls the custom search endpoint rather than owning direct unrestricted
+    SharePoint access.
+
+- Employee in app access group can sign in, browse only authorized files, and open files in
+  SharePoint.
+- Employee outside the app access group is blocked before seeing app content.
+- Guest/external account is denied.
+- User with access to only a subset of the SharePoint library never sees unauthorized files in
+  browse, search, or agent citations.
+- Permission revocation in SharePoint is reflected immediately in the app and agent results.
+- Agent answers include citations to accessible files only and refuses unsupported questions.
+- Copilot Studio SSO works from the embedded website without separate login prompts.
+- Admin-only source configuration path rejects non-admin users.
+- Logs capture sign-in, denied access, file-result events, cited-document identifiers, and
+  admin changes without storing unnecessary document bodies.
+
+## Assumptions and Defaults
+
+- V1 scope is one specific SharePoint site/library, not org-wide discovery.
+- Production design uses GA building blocks only; no preview feature is required for the core
+  path.
+- If you already have a Copilot Studio agent created before March 18, 2026, do not assume it
+  uses current Entra agent identity behavior; recreate it if governance validation shows it is
+  still on a legacy service principal.
+- Although lighter telemetry was discussed, this plan assumes audit-grade access and
+  configuration logging because weaker telemetry is not compatible with the stated security
+  requirement.
